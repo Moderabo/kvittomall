@@ -1,7 +1,5 @@
-entries/*
-finishedPDF/*
-handledPDF/*
-otherFiles/*
+final/*
+processed/*
 *.csv
 
 # Byte-compiled / optimized / DLL files
