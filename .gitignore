@@ -1,5 +1,5 @@
-final/*
-processed/*
+final/
+processed/
 *.csv
 
 # Byte-compiled / optimized / DLL files
