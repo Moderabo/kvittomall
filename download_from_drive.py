@@ -16,7 +16,7 @@ class Downloader:
     """
     CHUNK_SIZE = 32768  # Size of chunks to read when downloading files
 
-    def __init__(self, csv_file: str = "responses.csv", download_dir: str = "downloads", log_file: str = "download.log"):
+    def __init__(self, csv_file: str = "responses.csv", download_dir: str = "downloads", log_file: str = "logs/download.log"):
         """
         Initialize the Downloader.
         Args:
@@ -28,6 +28,7 @@ class Downloader:
         self.download_dir = download_dir
         self.log_file = log_file
         os.makedirs(self.download_dir, exist_ok=True)
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
         self._setup_logging()
 
     def _setup_logging(self):
@@ -137,6 +138,12 @@ class Downloader:
         for key, value in response.cookies.items():
             if key.startswith("download_warning"):
                 return value
+
+        # Fallback for when the token is in the response body
+        if "text/html" in response.headers.get("Content-Type", ""):
+            match = re.search(r'confirm=([a-zA-Z0-9\-_]+)"', response.text)
+            if match:
+                return match.group(1)
         return None
 
     @staticmethod
@@ -178,7 +185,7 @@ if __name__ == "__main__":
     """
     Main entry point for the script. Sets up logging, creates a Downloader, and processes the CSV.
     """
-    downloader = Downloader(csv_file="responses.csv", download_dir="downloads", log_file="download.log")
+    downloader = Downloader(csv_file="responses.csv", download_dir="downloads", log_file="logs/download.log")
     logging.info("🚀 === Download started ===")
     downloader.process_csv()
     logging.info("🎉 === Download finished ===")

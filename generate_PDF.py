@@ -1,15 +1,19 @@
+# Standard library imports
 import os
 import re
 import csv
 import logging
+from io import BytesIO
+
+# Third-party imports
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from PyPDF2 import PdfReader, PdfWriter
 from pdf2image import convert_from_path
-from PIL import Image
-from io import BytesIO
+from PIL import Image # PIL is often considered third-party, though it's a core image library
+
 class PdfGenerator:
     # --- Constants for PDF layout and style ---
     FONT_BOLD = "Helvetica-Bold"
@@ -45,7 +49,7 @@ class PdfGenerator:
         [("Övrigt:", "Övrigt"), ("Extra info:", "Extra info")]
     ]
 
-    def __init__(self, input_dir="processed", csv_file="responses.csv", output_dir="final", log_file="generatePDF.log", logo_path="logo.png"):
+    def __init__(self, input_dir="processed", csv_file="responses.csv", output_dir="final", log_file="logs/generatePDF.log", logo_path="logo.png"):
         self.input_dir = input_dir
         self.csv_file = csv_file
         self.output_dir = output_dir
@@ -57,6 +61,7 @@ class PdfGenerator:
         )
 
         os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
         self._setup_logging()
 
     def _setup_logging(self):

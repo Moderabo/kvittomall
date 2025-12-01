@@ -1,18 +1,22 @@
+# Standard library imports
 import os
 import shutil
+import logging
+
+# Third-party imports
 from PIL import Image, ImageOps
 import magic
 import pillow_heif
-import logging
 
 class ImageProcessor:
-    def __init__(self, input_dir="downloads", output_dir="processed", log_file="process.log", max_dimension=2000, jpeg_quality=30):
+    def __init__(self, input_dir="downloads", output_dir="processed", log_file="logs/process.log", max_dimension=2000, jpeg_quality=30):
         self.INPUT_DIR = input_dir
         self.OUTPUT_DIR = output_dir
         self.LOG_FILE = log_file
         self.MAX_DIMENSION = max_dimension
         self.JPEG_QUALITY = jpeg_quality
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(self.LOG_FILE), exist_ok=True)
         self._setup_logging()
 
     def _setup_logging(self):
