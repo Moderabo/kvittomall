@@ -1,8 +1,11 @@
+# Standard library imports
 import logging
-import pandas as pd
-import requests
 import io
 import os
+
+# Third-party imports
+import pandas as pd
+import requests
 from dotenv import load_dotenv
 
 class SheetProcessor:
@@ -108,22 +111,19 @@ class SheetProcessor:
 
         logging.info("🎉 === Download script finished ===")
 
-# --- Main Execution ---
 if __name__ == "__main__":
     # Load environment variables from a .env file in the project root
     load_dotenv()
 
     # --- Configuration ---
     # The ID of your Google Sheet. Read from the .env file.
-    # Example: SHEET_ID="1BJApUham9TNY4MsbmvDH9esf3FKvpYcehPlCKOTSPDs"
     MY_SHEET_ID = os.getenv("SHEET_ID")
 
     # The GID of the specific sheet/tab. Read from the .env file.
-    # Example: SHEET_GID="1294441553"
     MY_SHEET_GID = os.getenv("SHEET_GID")
 
     # The file that the other scripts in your project expect to read from.
-    OUTPUT_FILENAME = "responses_test.csv"
+    OUTPUT_FILENAME = "responses.csv"
 
     if not MY_SHEET_ID or not MY_SHEET_GID:
         raise ValueError("Error: SHEET_ID and SHEET_GID must be set in your .env file.")
