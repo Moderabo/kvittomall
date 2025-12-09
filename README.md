@@ -22,8 +22,8 @@ Processen är uppdelad i fyra steg. Utdata från ett steg blir indata för näst
 
 1.  **Klona projektet:**
     ```sh
-    git clone <din-repo-url>
-    cd <projektmapp>
+    git clone https://github.com/Moderabo/kvittomall.git
+    cd kvittomall
     ```
 
 2.  **Skapa en virtuell miljö (rekommenderas):**
