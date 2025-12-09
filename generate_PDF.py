@@ -14,6 +14,13 @@ from PyPDF2 import PdfReader, PdfWriter
 from pdf2image import convert_from_path
 from PIL import Image # PIL is often considered third-party, though it's a core image library
 
+# Local application imports
+from utils import get_final_pdf_filename, final_pdf_exists, get_base_filename
+from config import (
+    PDF_SECTIONS, SUM_COLUMN, TRANSACTION_TYPE_COLUMN, TIMESTAMP_COLUMN, NAME_COLUMN,
+    RECEIPT_LINKS_COLUMN, PDF_TITLE_PREFIX, PDF_ATTACHMENT_PAGE_TITLE, CURRENCY_SUFFIX
+)
+
 class PdfGenerator:
     # --- Constants for PDF layout and style ---
     FONT_BOLD = "Helvetica-Bold"
@@ -41,14 +48,6 @@ class PdfGenerator:
     PDF_ATTACHMENT_DPI = 150
     PDF_ATTACHMENT_QUALITY = 75
 
-    # Defines the structure of the main text page.
-    # Each inner list is a section, containing tuples of (PDF Label, CSV Header).
-    PDF_SECTIONS = [
-        [("Datum:", "Datum på kvittot"), ("Namn:", "Namn"), ("Summa:", "Summa"), ("Kontonummer:", "Kontonummer")],
-        [("Utskott:", "Utskott"), ("Arrangemang:", "Arrangemang"), ("Specificering:", "Specificering")],
-        [("Övrigt:", "Övrigt"), ("Extra info:", "Extra info")]
-    ]
-
     def __init__(self, input_dir="processed", csv_file="responses.csv", output_dir="final", log_file="logs/generatePDF.log", logo_path="logo.png"):
         self.input_dir = input_dir
         self.csv_file = csv_file
@@ -56,8 +55,10 @@ class PdfGenerator:
         self.logo_path = logo_path
         self.log_file = log_file
 
+        # The file pattern is based on the output of utils.get_base_filename
         self.file_pattern = re.compile(
-            r"^(?P<timestamp>[\d_-]+)_(?P<name>.+?)_file\d+\.(?P<ext>jpg|jpeg|pdf)$"
+            # This regex is designed to match the sanitized base filename format.
+            r"^(?P<base_name>.+?)_file\d+\.(?P<ext>jpg|jpeg|pdf)$"
         )
 
         os.makedirs(self.output_dir, exist_ok=True)
@@ -134,29 +135,33 @@ class PdfGenerator:
 
     def _generate_pdf_for_row(self, row):
         """Generates a single PDF for a given CSV row."""
-        timestamp = row.get("Tidstämpel", "").replace(" ", "_").replace(":", "-")
-        name = row.get("Namn", "").rstrip(" ").replace(" ", "-")
-        if not timestamp or not name:
-            logging.warning("⚠️ Missing timestamp or name, skipping row")
+        final_pdf_filename = get_final_pdf_filename(row)
+        if not final_pdf_filename:
+            logging.warning(f"⚠️ Missing '{TIMESTAMP_COLUMN}' or '{NAME_COLUMN}' in row, skipping PDF generation.")
             return
 
-        pdf_path = os.path.join(self.output_dir, f"{timestamp}_{name}.pdf")
-        temp_text_pdf = os.path.join(self.output_dir, f"{timestamp}_{name}_text.pdf")
+        if final_pdf_exists(row, self.output_dir):
+            final_pdf_path = os.path.join(self.output_dir, final_pdf_filename)
+            logging.info(f"✅ Final PDF already exists: {final_pdf_path}")
+            return
+
+        pdf_path = os.path.join(self.output_dir, final_pdf_filename)
+        temp_text_pdf = os.path.join(self.output_dir, f"{os.path.splitext(final_pdf_filename)[0]}_text.pdf")
 
         # --- Step 1: Generate text page ---
         canvas_obj = canvas.Canvas(temp_text_pdf, pagesize=A4)
-        self._draw_page_header(canvas_obj, f"Kvittomall - {row.get('Transaktionstyp', '')}")
+        self._draw_page_header(canvas_obj, f"{PDF_TITLE_PREFIX}{row.get(TRANSACTION_TYPE_COLUMN, '')}")
 
         y = self.PAGE_HEIGHT - 5 * cm
         max_text_width = self.PAGE_WIDTH - (2 * self.MARGIN_SIDE)
 
-        for section in self.PDF_SECTIONS:
+        for section in PDF_SECTIONS:
             non_empty_fields = []
             for label, key_csv in section:
                 value = str(row.get(key_csv, "")).strip()
                 if value:
-                    if key_csv == "Summa":
-                        value = f"{value} kr"
+                    if key_csv == SUM_COLUMN:
+                        value = f"{value}{CURRENCY_SUFFIX}"
                     non_empty_fields.append((label, value))
             if not non_empty_fields:
                 continue
@@ -186,7 +191,7 @@ class PdfGenerator:
             reader = PdfReader(f)
             writer.append_pages_from_reader(reader)
 
-        self._add_attachments_to_writer(writer, row.get("Ladda upp kvittot", []))
+        self._add_attachments_to_writer(writer, row.get(RECEIPT_LINKS_COLUMN, []))
 
         with open(pdf_path, "wb") as f_out:
             writer.write(f_out)
@@ -208,7 +213,7 @@ class PdfGenerator:
                 if ext in [".jpg", ".jpeg"]:
                     temp_img_pdf = os.path.join(self.output_dir, f"temp_{os.path.basename(filename)}.pdf")
                     canvas_obj = canvas.Canvas(temp_img_pdf, pagesize=A4)
-                    self._draw_page_header(canvas_obj, "Kvittomall - Bild på kvittot")
+                    self._draw_page_header(canvas_obj, PDF_ATTACHMENT_PAGE_TITLE)
 
                     img = ImageReader(full_path)
                     iw, ih = img.getSize()
@@ -245,7 +250,8 @@ class PdfGenerator:
         for f in os.listdir(self.input_dir):
             m = self.file_pattern.match(f)
             if m:
-                key = f"{m['timestamp']}_{m['name']}"
+                # The key is the part of the filename before "_file...".
+                key = m['base_name']
                 available_files.setdefault(key, []).append(f)
         return available_files
 
@@ -254,16 +260,15 @@ class PdfGenerator:
         logging.info("🚀 === Generating PDFs ===")
         available_files = self._build_file_map()
 
-        with open(self.csv_file, newline="", encoding="utf-8") as f:
+        with open(self.csv_file, newline="", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for i, row in enumerate(reader):
-                timestamp = row.get("Tidstämpel", "").replace(" ", "_").replace(":", "-")
-                name = row.get("Namn", "").rstrip(" ").replace(" ", "-")
-                if not timestamp or not name:
-                    logging.error(f"❌ Row {i} missing Tidstämpel or Namn, skipping")
+                final_pdf_filename = get_final_pdf_filename(row)
+                if not final_pdf_filename:
+                    logging.error(f"❌ Row {i} missing '{TIMESTAMP_COLUMN}' or '{NAME_COLUMN}', skipping")
                     continue
 
-                key = f"{timestamp}_{name}"
+                key = get_base_filename(row)
                 matched_files = available_files.get(key, [])
 
                 if not matched_files:
@@ -271,7 +276,7 @@ class PdfGenerator:
                 else:
                     logging.info(f"🔗 Row {i} ({key}) matched files: {matched_files}")
 
-                row["Ladda upp kvittot"] = matched_files
+                row[RECEIPT_LINKS_COLUMN] = matched_files
                 self._generate_pdf_for_row(row)
 
         logging.info("🎉 === Finished generating PDFs ===")

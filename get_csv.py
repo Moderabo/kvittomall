@@ -8,6 +8,9 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
+# Local application imports
+from config import TIMESTAMP_COLUMN
+
 class SheetProcessor:
     """
     Handles downloading, validating, and saving data from a public Google Sheet.
@@ -69,15 +72,14 @@ class SheetProcessor:
             logging.error("❌ DataFrame has no columns, cannot perform validation.")
             return
 
-        timestamp_col = df.columns[0]
-        logging.info(f"Verifying chronological order of column: '{timestamp_col}'...")
+        logging.info(f"Verifying chronological order of column: '{TIMESTAMP_COLUMN}'...")
 
-        timestamps = pd.to_datetime(df[timestamp_col], format='%Y-%m-%d %H.%M.%S', errors='coerce')
+        timestamps = pd.to_datetime(df[TIMESTAMP_COLUMN], format='%Y-%m-%d %H.%M.%S', errors='coerce')
 
         if timestamps.isnull().any():
             logging.error("❌ CRITICAL: Chronological check failed. Found rows with invalid date format.")
-            bad_rows = df[timestamps.isnull()]
-            logging.error(f"The following rows in column '{timestamp_col}' could not be parsed:\n{bad_rows}")
+            bad_rows = df[timestamps.isnull()][[TIMESTAMP_COLUMN]]
+            logging.error(f"The following rows in column '{TIMESTAMP_COLUMN}' could not be parsed:\n{bad_rows}")
             logging.error("Aborting save. The CSV file will not be updated.")
             return
 
@@ -87,8 +89,8 @@ class SheetProcessor:
             first_bad_index = diffs[diffs.dt.total_seconds() < 0].index.min()
             if first_bad_index is not None and first_bad_index > 0:
                 logging.error(f"First out-of-order entry found at row index {first_bad_index}:")
-                logging.error(f"  Previous row: {df.iloc[first_bad_index-1][timestamp_col]}")
-                logging.error(f"  Current row:  {df.iloc[first_bad_index][timestamp_col]}")
+                logging.error(f"  Previous row: {df.iloc[first_bad_index-1][TIMESTAMP_COLUMN]}")
+                logging.error(f"  Current row:  {df.iloc[first_bad_index][TIMESTAMP_COLUMN]}")
             logging.error("Aborting save. The CSV file will not be updated.")
             return
 

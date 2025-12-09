@@ -9,6 +9,10 @@ from typing import Optional
 import requests
 import magic
 
+# Local application imports
+from utils import get_final_pdf_filename, final_pdf_exists, get_base_filename
+from config import RECEIPT_LINKS_COLUMN, TIMESTAMP_COLUMN, NAME_COLUMN
+
 class Downloader:
     """
     Downloads files from Google Drive links listed in a CSV file.
@@ -16,16 +20,18 @@ class Downloader:
     """
     CHUNK_SIZE = 32768  # Size of chunks to read when downloading files
 
-    def __init__(self, csv_file: str = "responses.csv", download_dir: str = "downloads", log_file: str = "logs/download.log"):
+    def __init__(self, csv_file: str = "responses.csv", download_dir: str = "downloads", final_dir: str = "final", log_file: str = "logs/download.log"):
         """
         Initialize the Downloader.
         Args:
             csv_file (str): Path to the CSV file containing download links.
             download_dir (str): Directory to save downloaded files.
+            final_dir (str): Directory where final PDFs are stored, to check for existing files.
             log_file (str): Path to the log file.
         """
         self.csv_file = csv_file
         self.download_dir = download_dir
+        self.final_dir = final_dir
         self.log_file = log_file
         os.makedirs(self.download_dir, exist_ok=True)
         os.makedirs(os.path.dirname(self.log_file), exist_ok=True)
@@ -63,17 +69,23 @@ class Downloader:
         Each file is saved with a sanitized filename based on timestamp and name.
         Logs success or failure for each file.
         """
-        with open(self.csv_file, newline="", encoding="utf-8") as f:
+        with open(self.csv_file, newline="", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for i, row in enumerate(reader):
-                links = row.get("Ladda upp kvittot", "")
+                final_pdf_filename = get_final_pdf_filename(row)
+                logging.info(f"Processing row {i}: {final_pdf_filename or 'INVALID ROW'}")
+                if final_pdf_exists(row, self.final_dir):
+                    logging.info(f"✅ Final PDF already exists, skipping row {i}: {os.path.join(self.final_dir, final_pdf_filename)}")
+                    continue
+
+                links = row.get(RECEIPT_LINKS_COLUMN, "")
                 if not links:
                     continue
-                timestamp = row.get("Tidstämpel", f"row{i}")
-                name = row.get("Namn", "unknown")
-                # Sanitize for filenames
-                timestamp_s = self.sanitize_filename(timestamp.replace(" ", "_").replace(":", "-"))
-                name_s = self.sanitize_filename(name.rstrip(" ").replace(" ", "-"))
+                base_filename = get_base_filename(row)
+                if not base_filename:
+                    logging.warning(f"⚠️ Row {i} is missing '{TIMESTAMP_COLUMN}' or '{NAME_COLUMN}', cannot generate filename. Skipping downloads.")
+                    continue
+
                 for j, link in enumerate(links.split(",")):
                     link = link.strip()
                     if not link:
@@ -82,8 +94,8 @@ class Downloader:
                     if not file_id:
                         logging.warning(f"⚠️ Could not parse link: {link}")
                         continue
-                    temp_path = os.path.join(self.download_dir, f"{timestamp_s}_{name_s}_file{j}.tmp")
-                    final_base = os.path.join(self.download_dir, f"{timestamp_s}_{name_s}_file{j}")
+                    temp_path = os.path.join(self.download_dir, f"{base_filename}_file{j}.tmp")
+                    final_base = os.path.join(self.download_dir, f"{base_filename}_file{j}")
                     try:
                         self.download_from_google_drive(file_id, temp_path)
                         ext = self.detect_extension(temp_path)
@@ -95,20 +107,6 @@ class Downloader:
                         logging.error(f"Row data: {row}")
 
     # --- Static helper methods ---
-    @staticmethod
-    def sanitize_filename(s: str) -> str:
-        """
-        Sanitize a string to be safe for filenames.
-        Replaces spaces and special characters with underscores.
-        Args:
-            s (str): Input string.
-        Returns:
-            str: Sanitized string.
-        """
-        s = s.strip()
-        s = re.sub(r"[^\w\-_.]", "_", s)
-        return s
-
     @staticmethod
     def get_drive_file_id(url: str) -> Optional[str]:
         """
@@ -185,7 +183,12 @@ if __name__ == "__main__":
     """
     Main entry point for the script. Sets up logging, creates a Downloader, and processes the CSV.
     """
-    downloader = Downloader(csv_file="responses.csv", download_dir="downloads", log_file="logs/download.log")
+    downloader = Downloader(
+        csv_file="responses.csv",
+        download_dir="downloads",
+        final_dir="final",
+        log_file="logs/download.log"
+    )
     logging.info("🚀 === Download started ===")
     downloader.process_csv()
     logging.info("🎉 === Download finished ===")
