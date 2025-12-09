@@ -125,7 +125,7 @@ if __name__ == "__main__":
     MY_SHEET_GID = os.getenv("SHEET_GID")
 
     # The file that the other scripts in your project expect to read from.
-    OUTPUT_FILENAME = "responses_33.csv"
+    OUTPUT_FILENAME = "responses.csv"
 
     if not MY_SHEET_ID or not MY_SHEET_GID:
         raise ValueError("Error: SHEET_ID and SHEET_GID must be set in your .env file.")
