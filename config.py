@@ -44,3 +44,5 @@ PDF_SECTIONS = [
         ("Extra info:", "Extra info")
     ]
 ]
+
+LOGO = "logo.png"
