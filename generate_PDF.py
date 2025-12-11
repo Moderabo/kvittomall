@@ -18,7 +18,8 @@ from PIL import Image # PIL is often considered third-party, though it's a core 
 from utils import get_final_pdf_filename, final_pdf_exists, get_base_filename
 from config import (
     PDF_SECTIONS, SUM_COLUMN, TRANSACTION_TYPE_COLUMN, TIMESTAMP_COLUMN, NAME_COLUMN,
-    RECEIPT_LINKS_COLUMN, PDF_TITLE_PREFIX, PDF_ATTACHMENT_PAGE_TITLE, CURRENCY_SUFFIX
+    RECEIPT_LINKS_COLUMN, PDF_TITLE_PREFIX, PDF_ATTACHMENT_PAGE_TITLE, CURRENCY_SUFFIX,
+    LOGO,
 )
 
 class PdfGenerator:
@@ -282,5 +283,5 @@ class PdfGenerator:
         logging.info("🎉 === Finished generating PDFs ===")
 
 if __name__ == "__main__":
-    generator = PdfGenerator()
+    generator = PdfGenerator(logo_path=LOGO)
     generator.run()
