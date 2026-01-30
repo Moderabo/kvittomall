@@ -51,6 +51,7 @@ class SheetProcessor:
         try:
             response = requests.get(url)
             response.raise_for_status()
+            response.encoding = 'utf-8'
         except requests.exceptions.RequestException as e:
             logging.error(f"Error downloading the sheet: {e}")
             logging.error("A 4xx error often means the sheet is not publicly shared ('Anyone with the link') or the ID/GID is incorrect.")
@@ -74,6 +75,7 @@ class SheetProcessor:
 
         logging.info(f"Verifying chronological order of column: '{TIMESTAMP_COLUMN}'...")
 
+        print(f"DEBUG: Available columns are: {df.columns.tolist()}")
         timestamps = pd.to_datetime(df[TIMESTAMP_COLUMN], format='%Y-%m-%d %H.%M.%S', errors='coerce')
 
         if timestamps.isnull().any():
@@ -82,7 +84,6 @@ class SheetProcessor:
             logging.error(f"The following rows in column '{TIMESTAMP_COLUMN}' could not be parsed:\n{bad_rows}")
             logging.error("Aborting save. The CSV file will not be updated.")
             return
-
         if not timestamps.is_monotonic_increasing:
             logging.error("❌ CRITICAL: Chronological check failed. The timestamp column is not in order.")
             diffs = timestamps.diff()
