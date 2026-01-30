@@ -12,6 +12,7 @@ Processen är uppdelad i fyra steg. Utdata från ett steg blir indata för näst
 
 ## Förutsättningar
 
+- **Linux (rekommenderas)**
 - **Python 3.7+**
 - **Poppler**: Krävs för PDF-hantering.
   - **macOS**: `brew install poppler`
