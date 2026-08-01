@@ -24,10 +24,6 @@ TIMESTAMP_FORMAT = "%Y-%m-%d %H.%M.%S"
 logger = setup_logging("fetch")
 
 
-class SheetValidationError(Exception):
-    """Raised when the downloaded sheet fails validation; the CSV is left untouched."""
-
-
 class SheetFetchError(Exception):
     """Raised when a sheet fetch (API or public) fails outright, e.g. network/auth errors."""
 
@@ -40,7 +36,11 @@ def read_rows(csv_path: str = RESPONSES_CSV) -> list[dict]:
 
 
 def _validate_chronological(rows: list[dict]) -> None:
-    """Every row's timestamp must parse and the column must be non-decreasing."""
+    """Warns about unparseable or out-of-order timestamps, but doesn't block the fetch -
+    no row's identity or state depends on sheet order or on this format parsing cleanly
+    (each row is keyed by its own raw timestamp value, not by position), so this is just
+    an early heads-up that the sheet may have been reordered or has a malformed row.
+    """
     previous_ts = None
     previous_raw = None
     for i, row in enumerate(rows):
@@ -48,11 +48,10 @@ def _validate_chronological(rows: list[dict]) -> None:
         try:
             ts = datetime.strptime(raw, TIMESTAMP_FORMAT)
         except ValueError:
-            raise SheetValidationError(f"Row {i}: cannot parse '{TIMESTAMP_COLUMN}' value '{raw}'")
+            logger.warning(f"Row {i}: cannot parse '{TIMESTAMP_COLUMN}' value '{raw}'")
+            continue
         if previous_ts is not None and ts < previous_ts:
-            raise SheetValidationError(
-                f"Row {i}: timestamps out of order ('{previous_raw}' then '{raw}')"
-            )
+            logger.warning(f"Row {i}: timestamps out of order ('{previous_raw}' then '{raw}')")
         previous_ts, previous_raw = ts, raw
 
 
@@ -111,9 +110,9 @@ def _fetch_api(sheet_id: str, sheet_gid: str) -> list[dict]:
 
 
 def fetch_and_save(sheet_id: str, sheet_gid: str, csv_path: str = RESPONSES_CSV) -> int:
-    """Downloads the sheet, validates it, and atomically replaces csv_path.
-    Returns the number of rows saved. Raises SheetValidationError without touching
-    csv_path if validation fails, so a bad fetch never clobbers good existing data.
+    """Downloads the sheet and atomically replaces csv_path. Returns the number of rows
+    saved. Only a failed download (SheetFetchError) leaves csv_path untouched - rows
+    with unparseable/out-of-order timestamps are still saved, just logged as warnings.
     """
     mode = google_api.get_access_mode()
     if mode == "public":
@@ -129,7 +128,7 @@ def fetch_and_save(sheet_id: str, sheet_gid: str, csv_path: str = RESPONSES_CSV)
 
     if rows:
         _validate_chronological(rows)
-    logger.info(f"Downloaded {len(rows)} rows; chronological check passed.")
+    logger.info(f"Downloaded {len(rows)} rows.")
 
     def write(tmp_path: str) -> None:
         with open(tmp_path, "w", newline="", encoding="utf-8-sig") as f:
@@ -154,6 +153,6 @@ def run() -> None:
             if not sheet_id or not sheet_gid:
                 raise SheetFetchError("SHEET_ID and SHEET_GID must be set in .env")
             fetch_and_save(sheet_id, sheet_gid)
-        except (SheetFetchError, SheetValidationError, SystemExit) as e:
+        except (SheetFetchError, SystemExit) as e:
             logger.error(f"Fetch failed, existing responses.csv left untouched: {e}")
             raise SystemExit(1)
