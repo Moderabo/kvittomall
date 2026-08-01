@@ -3,6 +3,13 @@
 Every attachment's status lives in the attachments table (see db.py) rather than being
 inferred from "does a file with a guessed name exist" - so a zero-byte or half-written
 download from a previous crashed run is correctly retried, not mistaken for done.
+
+Two ways to reach Drive are supported, chosen via ACCESS_MODE (see google_api.py): a
+service account through the Drive API, or the original anonymous download link that
+only works while each file is shared as "anyone with the link". Which one is usable is
+decided once at the start of run() (a single API call), not per file - a broken
+key/share affects every file identically, so there's no point re-discovering that on
+every attachment.
 """
 
 import glob
@@ -12,8 +19,9 @@ from typing import Optional
 
 import magic
 import requests
+from googleapiclient.http import MediaIoBaseDownload
 
-from kvittomall import db
+from kvittomall import db, google_api
 from kvittomall.config import RECEIPT_LINKS_COLUMN
 from kvittomall.logging_setup import run_timer, setup_logging
 from kvittomall.paths import DOWNLOADS_DIR
@@ -56,7 +64,8 @@ def _get_confirm_token(response: requests.Response) -> Optional[str]:
     return None
 
 
-def _download_raw(file_id: str, dst_tmp_path: str) -> None:
+def _download_public(file_id: str, dst_tmp_path: str) -> None:
+    """The original method: works only while the file is shared as "anyone with the link"."""
     url = "https://docs.google.com/uc?export=download"
     session = requests.Session()
     response = session.get(url, params={"id": file_id}, stream=True, timeout=30)
@@ -64,10 +73,32 @@ def _download_raw(file_id: str, dst_tmp_path: str) -> None:
     if token:
         response = session.get(url, params={"id": file_id, "confirm": token}, stream=True, timeout=30)
     response.raise_for_status()
+    if "text/html" in response.headers.get("Content-Type", ""):
+        # A file that isn't accessible gets a 200 OK here with a Google sign-in/permission
+        # page instead of a real 4xx status, so raise_for_status() alone can't catch it -
+        # this is the only way to tell "denied" apart from a real download before writing
+        # that HTML page to disk as if it were the receipt.
+        raise ValueError(
+            "access was denied - Google returned a sign-in/permission page instead of the "
+            'file, which usually means it is not shared as "anyone with the link"'
+        )
     with open(dst_tmp_path, "wb") as f:
         for chunk in response.iter_content(CHUNK_SIZE):
             if chunk:
                 f.write(chunk)
+
+
+def _download_api(file_id: str, dst_tmp_path: str, service) -> None:
+    """Uses MediaIoBaseDownload's default chunk size (100 MB) rather than CHUNK_SIZE -
+    each chunk is a separate API request, and a receipt is always far under 100 MB, so
+    this downloads it in a single request instead of dozens of tiny ones.
+    """
+    request = service.files().get_media(fileId=file_id)
+    with open(dst_tmp_path, "wb") as f:
+        downloader = MediaIoBaseDownload(f, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
 
 
 def _find_existing_download(base_filename: str, link_index: int) -> Optional[str]:
@@ -94,10 +125,19 @@ def _adopt_existing(conn, row_key: str, link_index: int, path: str) -> bool:
     return True
 
 
-def _download_one(conn, row_key: str, link_index: int, file_id: str, base_filename: str) -> None:
+def _download_one(
+    conn, row_key: str, link_index: int, file_id: str, base_filename: str, drive_service
+) -> None:
     tmp_path = os.path.join(DOWNLOADS_DIR, f".{base_filename}_file{link_index}.part")
     try:
-        _download_raw(file_id, tmp_path)
+        try:
+            if drive_service is not None:
+                _download_api(file_id, tmp_path, drive_service)
+            else:
+                _download_public(file_id, tmp_path)
+        except (*google_api.API_ERRORS, *google_api.PUBLIC_ERRORS) as e:
+            via = "api" if drive_service is not None else "public"
+            raise ValueError(f"could not download it: {google_api.describe(e, via=via)}") from e
         size = os.path.getsize(tmp_path)
         if size == 0:
             raise ValueError("downloaded file is empty")
@@ -117,9 +157,45 @@ def _download_one(conn, row_key: str, link_index: int, file_id: str, base_filena
             os.remove(tmp_path)
 
 
+def _get_drive_service():
+    """Decides, once per run, whether the Drive API is usable. Returns a service object
+    to use it, or None to fall back to the public download method for this whole run -
+    logging a WARNING (visible on the console, not just in the log file) when that
+    fallback happens, so it's clear *why* subsequent public-sharing failures are even
+    being attempted via the public method instead of the API.
+    Raises SystemExit only when ACCESS_MODE=api and the API genuinely can't be used -
+    the caller is responsible for logging that before it propagates, same as every
+    other stage-ending failure.
+    """
+    mode = google_api.get_access_mode()
+    if mode == "public":
+        return None
+    try:
+        service = google_api.build_drive_service()
+        service.about().get(fields="user").execute()  # cheap call that proves auth works
+        logger.info("Using the Drive API.")
+        return service
+    except google_api.API_ERRORS as e:
+        reason = google_api.describe(e, via="api")
+        if mode == "api":
+            raise SystemExit(f"Could not connect to the Drive API: {reason}")
+        logger.warning(f"Could not connect to the Drive API, falling back to public downloads: {reason}")
+        return None
+
+
 def run() -> None:
+    with run_timer(logger, "download"):
+        try:
+            drive_service = _get_drive_service()
+        except SystemExit as e:
+            logger.error(f"Download failed before it could start: {e}")
+            raise SystemExit(1)
+        _download_all(drive_service)
+
+
+def _download_all(drive_service) -> None:
     rows = read_rows()
-    with db.connect() as conn, run_timer(logger, "download"), ProgressBar(len(rows), "Downloading") as bar:
+    with db.connect() as conn, ProgressBar(len(rows), "Downloading") as bar:
         for i, row in enumerate(rows):
             row_key = sync_row(conn, row)
             if row_key is None:
@@ -147,6 +223,6 @@ def run() -> None:
                     continue
 
                 logger.info(f"Row {i} attachment {j}: downloading ({reason})")
-                _download_one(conn, row_key, j, file_id, base)
+                _download_one(conn, row_key, j, file_id, base, drive_service)
 
             bar.update()

@@ -6,6 +6,8 @@ Detta projekt automatiserar skapandet av kvittomallar för utläggsredovisning. 
 
 Allt körs genom ett enda kommando, `kvittomall`, med fyra steg. Varje steg är idempotent: dess status för varje rad sparas i en lokal databas (`kvittomall_state.db`) och verifieras mot filsystemet vid varje körning, så avbrutna eller misslyckade körningar kan köras om utan att göra om onödigt arbete eller tappa data.
 
+Vid `kvittomall run` körs alla fyra stegen även om ett tidigare steg misslyckas - t.ex. om **fetch** inte kan nå Google just då körs **download**/**process**/**generate** ändå, mot den `responses.csv` som redan finns sedan en tidigare lyckad hämtning. Ett borttaget PDF-utlägg vars data redan laddats ner och bearbetats byggs alltså om även om det Google-anropet skulle misslyckas. Vilka steg som misslyckades skrivs ut på slutet och finns i respektive stegs logg.
+
 1. **fetch** - hämtar data från Google Sheet och sparar som `responses.csv`. Kontrollerar att tidstämplarna är i kronologisk ordning.
 2. **download** - laddar ner kvitton från Google Drive-länkarna i `responses.csv` till `downloads/`.
 3. **process** - komprimerar bilder adaptivt och sparar dem som JPEG i `processed/`; PDF:er kopieras oförändrade.
@@ -43,7 +45,7 @@ pip install -r requirements.txt
 
 ## Konfiguration
 
-1. **`.env`-fil** i projektets rotmapp, med Google Sheet-uppgifterna. Kalkylbladet måste vara delat som "Alla med länken":
+1. **`.env`-fil** i projektets rotmapp, med Google Sheet-uppgifterna:
     ```
     SHEET_ID="din_sheet_id_här"
     SHEET_GID="din_sheet_gid_här"
@@ -53,9 +55,23 @@ pip install -r requirements.txt
 
 3. **Kvittomallens innehåll**: vilka fält som visas på försättsbladet styrs av `PDF_SECTIONS` i [kvittomall/config.py](kvittomall/config.py) - varje etikett mappas där till en kolumn i kalkylbladet.
 
+### Åtkomst till kalkylbladet och Drive: publikt eller service account
+
+Verktyget kan hämta data på två sätt, styrt av `ACCESS_MODE` i `.env`:
+
+- **`public`** - den ursprungliga metoden. Kalkylbladet måste vara delat som "Alla med länken", och samma sak för varje Drive-mapp/fil som kvitton laddas upp till. Enklast att komma igång med, men innebär att vem som helst med länken kan läsa alla svar och kvitton.
+- **`api`** - hämtar via ett Google service account istället. Kalkylbladet och Drive-mappen kan då vara helt låsta (inte delade publikt) och bara delas med service accountets e-postadress. Kräver att ett service account skapas i Google Cloud Console (aktivera Sheets API och Drive API, skapa ett service account, ladda ner en JSON-nyckel) och att den e-postadressen ges läsbehörighet ("Viewer") till både kalkylbladet och Drive-mappen.
+- **Ej satt, eller `auto`** (standard) - försöker `api` först; om det misslyckas (t.ex. saknad nyckel eller inte delat med service accountet) varnas det i loggen och det faller tillbaka till `public` för den körningen. Om båda misslyckas avslutas programmet med ett fel.
+
+Vid `api` eller `auto` behövs även:
+```
+GOOGLE_SERVICE_ACCOUNT_FILE="/sökväg/till/service-account-nyckel.json"
+```
+Håll nyckelfilen utanför git (den ska inte checkas in) och begränsa dess filrättigheter - den fungerar som ett lösenord till service accountet.
+
 ## Användning
 
-Terminalen visar bara fel och en förloppsindikator. All detaljerad aktivitet loggas till `logs/{steg}-{år}-{månad}.log` (t.ex. `logs/download-2026-07.log`) - en fil per steg och månad, så loggarna aldrig växer obegränsat.
+Terminalen visar bara varningar, fel och en förloppsindikator. All detaljerad aktivitet loggas till `logs/{steg}-{år}-{månad}.log` (t.ex. `logs/download-2026-07.log`) - en fil per steg och månad, så loggarna aldrig växer obegränsat.
 
 ```sh
 python -m kvittomall run       # Kör alla fyra steg i ordning

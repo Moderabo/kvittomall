@@ -2,7 +2,7 @@
 
 Every INFO-and-up message goes to a log file under logs/, named "{stage}-{year}-{month}.log"
 so files stop growing forever and older activity naturally lands in its own file - no
-manual rotation/cleanup needed. The console only ever shows ERROR and above, so a normal
+manual rotation/cleanup needed. The console only ever shows WARNING and above, so a normal
 run stays quiet; anything printed to the terminal is coordinated with progress.py so it
 doesn't get mangled by the progress bar's live redraws.
 
@@ -63,7 +63,7 @@ def setup_logging(name: str) -> logging.Logger:
         logger.addHandler(file_handler)
 
         console_handler = _ConsoleHandler(sys.stderr)
-        console_handler.setLevel(logging.ERROR)
+        console_handler.setLevel(logging.WARNING)
         console_handler.setFormatter(_StockholmFormatter("[%(levelname)s] %(message)s"))
         logger.addHandler(console_handler)
 
