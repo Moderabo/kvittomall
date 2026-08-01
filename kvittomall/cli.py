@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("fetch", help="download and validate the Google Sheet -> responses.csv")
     subparsers.add_parser("download", help="download receipt attachments from Drive -> downloads/")
     subparsers.add_parser("process", help="normalize/compress attachments -> processed/")
-    subparsers.add_parser("generate", help="build final PDFs -> final/<Nya kvitton | category>/")
+    subparsers.add_parser("generate", help="build final PDFs -> final/<category>/ (older batches archived to final/previous/<category>/)")
     subparsers.add_parser("run", help="fetch -> download -> process -> generate")
     subparsers.add_parser("status", help="read-only status report (no lock)")
 
