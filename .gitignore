@@ -18,6 +18,11 @@ final/
 # Data files
 *.csv
 
+# API keys - *.json is broad, but this project has no legitimate tracked JSON files,
+# and Google's default downloaded key filename (<project-id>-<hash>.json) won't always
+# start with "kvittomall-", so a narrower pattern risks missing a rotated/second key.
+*.json
+
 # Pipeline state and lock
 kvittomall_state.db
 kvittomall_state.db-*
