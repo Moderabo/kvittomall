@@ -14,6 +14,12 @@ logs/
 downloads/
 processed/
 final/
+final.backup/
 
 # Data files
 *.csv
+
+# Pipeline state and lock
+kvittomall_state.db
+kvittomall_state.db-*
+kvittomall.lock
