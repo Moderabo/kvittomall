@@ -11,7 +11,7 @@ Vid `kvittomall run` körs alla fyra stegen även om ett tidigare steg misslycka
 1. **fetch** - hämtar data från Google Sheet och sparar som `data/responses.csv`. Varnar (men stoppar inte) om en tidstämpel inte går att tolka eller om ordningen inte är kronologisk - inget annat steg förutsätter längre att raderna kommer i ordning.
 2. **download** - laddar ner kvitton från Google Drive-länkarna i `data/responses.csv` till `data/downloads/`.
 3. **process** - komprimerar bilder adaptivt och sparar dem som JPEG i `data/processed/`; PDF:er kopieras oförändrade.
-4. **generate** - skapar de färdiga kvittomallarna i `final/`, uppdelat i `privat/`, `sektionskort/` och `övrigt/` (allt annat) baserat på `Transaktionstyp`.
+4. **generate** - skapar de färdiga kvittomallarna i `final/`, uppdelat i `privat/`, `sektionskort/`, `milersättning/` och `övrigt/` (allt annat) baserat på `Transaktionstyp`.
 
 Varje kategorimapp under `final/` innehåller alltid bara den senast genererade/uppdaterade omgången, så det är enkelt att se vad som är nytt. Så fort en ny omgång skapas arkiveras föregående omgångs filer till `final/previous/<kategori>/` istället för att skrivas över. En körning som inte hittar något nytt rör ingenting.
 
@@ -57,6 +57,12 @@ pip install -r requirements.txt
 
 3. **Kvittomallens innehåll**: vilka fält som visas på försättsbladet styrs av `PDF_SECTIONS` i [kvittomall/config.py](kvittomall/config.py) - varje etikett mappas där till en kolumn i kalkylbladet.
 
+4. **Kolumnnamn**: varje kolumnnamn verktyget letar efter (t.ex. `Tidstämpel`, `Namn`, `Summa`, `Körda mil`, `Kontonummer`, ...) är en egen namngiven konstant i `config.py`, med exakt sheet-kolumnens text som standardvärde. Om ett annat Google Form har en annan formulering på en fråga, sätt motsvarande `SHEET_COLUMN_*`-variabel i `.env` istället för att ändra i koden, t.ex.:
+    ```
+    SHEET_COLUMN_MIL="Antal mil"
+    ```
+    Se toppen av `config.py` för hela listan av `SHEET_COLUMN_*`-variabler och vilken standardtext de motsvarar.
+
 ### Åtkomst till kalkylbladet och Drive: publikt eller service account
 
 Verktyget kan hämta data på två sätt, styrt av `ACCESS_MODE` i `.env`:
@@ -96,7 +102,7 @@ python -m kvittomall status
 
 De färdiga rapporterna hamnar i:
 
-- `final/privat/`, `final/sektionskort/`, `final/övrigt/` - senaste omgången, det som är nytt.
-- `final/previous/privat/`, `final/previous/sektionskort/`, `final/previous/övrigt/` - allt äldre.
+- `final/privat/`, `final/sektionskort/`, `final/milersättning/`, `final/övrigt/` - senaste omgången, det som är nytt.
+- `final/previous/privat/`, `final/previous/sektionskort/`, `final/previous/milersättning/`, `final/previous/övrigt/` - allt äldre.
 
 Om en fil tas bort av misstag men innehållet på kalkylbladet inte ändrats, återskapas den vid nästa körning på exakt samma plats den låg på (kategorimappen eller `previous/`) - det räknas inte som nytt och flyttar inget annat.
