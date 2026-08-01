@@ -29,14 +29,14 @@ def row_key(row: dict) -> str | None:
 
 def base_filename(row: dict) -> str | None:
     """The human-readable filename stem used for this row's files on disk, e.g.
-    "2023-10-27_12-30-00_John-Doe". Returns None if required fields are missing.
+    "2023-10-27_12.30.00_John-Doe". Returns None if required fields are missing.
     """
     timestamp_raw = row.get(TIMESTAMP_COLUMN, "")
     name_raw = row.get(NAME_COLUMN, "")
     if not timestamp_raw or not name_raw:
         return None
 
-    timestamp = timestamp_raw.replace(" ", "_").replace(":", "-")
+    timestamp = timestamp_raw.replace(" ", "_")
     name = name_raw.rstrip(" ").replace(" ", "-")
     return f"{sanitize_filename(timestamp)}_{sanitize_filename(name)}"
 

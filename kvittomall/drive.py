@@ -19,6 +19,8 @@ from typing import Optional
 
 import magic
 import requests
+from google.auth.exceptions import GoogleAuthError
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 
 from kvittomall import db, google_api
@@ -38,6 +40,7 @@ MIME_TO_EXTENSION = {
     "image/gif": ".gif",
     "image/heic": ".heic",
     "image/heif": ".heif",
+    "image/webp": ".webp",
 }
 
 CHUNK_SIZE = 32768
@@ -135,7 +138,13 @@ def _download_one(
                 _download_api(file_id, tmp_path, drive_service)
             else:
                 _download_public(file_id, tmp_path)
-        except (*google_api.API_ERRORS, *google_api.PUBLIC_ERRORS) as e:
+        # Deliberately narrower than google_api.API_ERRORS: that tuple's bare OSError
+        # exists for credential-file problems when *building* a service, which already
+        # succeeded before we got here. An OSError raised during the download itself
+        # (e.g. disk full writing tmp_path) is a local infrastructure failure, not a
+        # Google-side one, and must not be relabeled as "could not download it" and
+        # retried per-attachment forever - it should propagate and stop the run.
+        except (HttpError, GoogleAuthError, *google_api.PUBLIC_ERRORS) as e:
             via = "api" if drive_service is not None else "public"
             raise ValueError(f"could not download it: {google_api.describe(e, via=via)}") from e
         size = os.path.getsize(tmp_path)
@@ -149,6 +158,8 @@ def _download_one(
         os.replace(tmp_path, final_path)
         db.mark_download_ok(conn, row_key, link_index, final_path, size)
         logger.info(f"Downloaded {final_path}")
+    except OSError:
+        raise
     except Exception as e:
         db.mark_download_failed(conn, row_key, link_index, str(e))
         logger.error(f"Failed to download row {row_key} attachment {link_index}: {e}")

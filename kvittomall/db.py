@@ -41,7 +41,6 @@ CREATE TABLE IF NOT EXISTS attachments (
     processed_path   TEXT,
     processed_size   INTEGER,
     error_message    TEXT,
-    attempts         INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (row_key, link_index)
 );
 """
@@ -182,7 +181,7 @@ def upsert_attachment(conn: sqlite3.Connection, row_key: str, link_index: int, d
             """
             UPDATE attachments SET drive_file_id = ?, download_status = 'pending', download_path = NULL,
                 download_size = NULL, process_status = 'pending', processed_path = NULL,
-                processed_size = NULL, error_message = NULL, attempts = 0
+                processed_size = NULL, error_message = NULL
             WHERE row_key = ? AND link_index = ?
             """,
             (drive_file_id, row_key, link_index),
@@ -219,7 +218,7 @@ def mark_download_ok(conn: sqlite3.Connection, row_key: str, link_index: int, pa
 def mark_download_failed(conn: sqlite3.Connection, row_key: str, link_index: int, error: str) -> None:
     conn.execute(
         """
-        UPDATE attachments SET download_status = 'failed', error_message = ?, attempts = attempts + 1
+        UPDATE attachments SET download_status = 'failed', error_message = ?
         WHERE row_key = ? AND link_index = ?
         """,
         (error, row_key, link_index),
@@ -239,7 +238,7 @@ def mark_process_ok(conn: sqlite3.Connection, row_key: str, link_index: int, pat
 def mark_process_failed(conn: sqlite3.Connection, row_key: str, link_index: int, error: str) -> None:
     conn.execute(
         """
-        UPDATE attachments SET process_status = 'failed', error_message = ?, attempts = attempts + 1
+        UPDATE attachments SET process_status = 'failed', error_message = ?
         WHERE row_key = ? AND link_index = ?
         """,
         (error, row_key, link_index),
