@@ -4,16 +4,18 @@ Detta projekt automatiserar skapandet av kvittomallar för utläggsredovisning. 
 
 ## Arbetsflöde
 
-Allt körs genom ett enda kommando, `kvittomall`, med fyra steg. Varje steg är idempotent: dess status för varje rad sparas i en lokal databas (`kvittomall_state.db`) och verifieras mot filsystemet vid varje körning, så avbrutna eller misslyckade körningar kan köras om utan att göra om onödigt arbete eller tappa data.
+Allt körs genom ett enda kommando, `kvittomall`, med fyra steg. Varje steg är idempotent: dess status för varje rad sparas i en lokal databas (`data/kvittomall_state.db`) och verifieras mot filsystemet vid varje körning, så avbrutna eller misslyckade körningar kan köras om utan att göra om onödigt arbete eller tappa data.
 
-Vid `kvittomall run` körs alla fyra stegen även om ett tidigare steg misslyckas - t.ex. om **fetch** inte kan nå Google just då körs **download**/**process**/**generate** ändå, mot den `responses.csv` som redan finns sedan en tidigare lyckad hämtning. Ett borttaget PDF-utlägg vars data redan laddats ner och bearbetats byggs alltså om även om det Google-anropet skulle misslyckas. Vilka steg som misslyckades skrivs ut på slutet och finns i respektive stegs logg.
+Vid `kvittomall run` körs alla fyra stegen även om ett tidigare steg misslyckas - t.ex. om **fetch** inte kan nå Google just då körs **download**/**process**/**generate** ändå, mot den `data/responses.csv` som redan finns sedan en tidigare lyckad hämtning. Ett borttaget PDF-utlägg vars data redan laddats ner och bearbetats byggs alltså om även om det Google-anropet skulle misslyckas. Vilka steg som misslyckades skrivs ut på slutet och finns i respektive stegs logg.
 
-1. **fetch** - hämtar data från Google Sheet och sparar som `responses.csv`. Varnar (men stoppar inte) om en tidstämpel inte går att tolka eller om ordningen inte är kronologisk - inget annat steg förutsätter längre att raderna kommer i ordning.
-2. **download** - laddar ner kvitton från Google Drive-länkarna i `responses.csv` till `downloads/`.
-3. **process** - komprimerar bilder adaptivt och sparar dem som JPEG i `processed/`; PDF:er kopieras oförändrade.
+1. **fetch** - hämtar data från Google Sheet och sparar som `data/responses.csv`. Varnar (men stoppar inte) om en tidstämpel inte går att tolka eller om ordningen inte är kronologisk - inget annat steg förutsätter längre att raderna kommer i ordning.
+2. **download** - laddar ner kvitton från Google Drive-länkarna i `data/responses.csv` till `data/downloads/`.
+3. **process** - komprimerar bilder adaptivt och sparar dem som JPEG i `data/processed/`; PDF:er kopieras oförändrade.
 4. **generate** - skapar de färdiga kvittomallarna i `final/`, uppdelat i `privat/`, `sektionskort/` och `övrigt/` (allt annat) baserat på `Transaktionstyp`.
 
 Varje kategorimapp under `final/` innehåller alltid bara den senast genererade/uppdaterade omgången, så det är enkelt att se vad som är nytt. Så fort en ny omgång skapas arkiveras föregående omgångs filer till `final/previous/<kategori>/` istället för att skrivas över. En körning som inte hittar något nytt rör ingenting.
+
+Allt under `data/` (nedladdningar, bearbetade filer, CSV:n, databasen, lock-filen) är arbetsdata som verktyget själv äger och kan bygga om från grunden - `final/` och `logs/` ligger däremot direkt i rotmappen, eftersom de är det du faktiskt vill åt: de färdiga rapporterna respektive loggarna.
 
 ## Kom igång
 

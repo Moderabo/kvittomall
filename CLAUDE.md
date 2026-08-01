@@ -13,10 +13,10 @@ python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt        # versions are pinned intentionally - keep them pinned
 
 python -m kvittomall run               # fetch -> download -> process -> generate, in order
-python -m kvittomall fetch             # Sheet -> responses.csv
-python -m kvittomall download          # Drive links in responses.csv -> downloads/
-python -m kvittomall process           # downloads/ -> processed/ (adaptive JPEG compression)
-python -m kvittomall generate          # processed/ + responses.csv -> final/<category>/
+python -m kvittomall fetch             # Sheet -> data/responses.csv
+python -m kvittomall download          # Drive links in data/responses.csv -> data/downloads/
+python -m kvittomall process           # data/downloads/ -> data/processed/ (adaptive JPEG compression)
+python -m kvittomall generate          # data/processed/ + data/responses.csv -> final/<category>/
 python -m kvittomall status            # read-only report of per-row/attachment state, no lock taken
 ```
 
@@ -30,7 +30,7 @@ Requires Python 3.10+ (the codebase uses `X | None` union-type syntax throughout
 
 Single package (`kvittomall/`), one module per pipeline stage plus shared infrastructure. `kvittomall/cli.py` is the only entry point (`python -m kvittomall <command>`); each stage is also a plain function (`sheet.run()`, `drive.run()`, `media.run()`, `pdf_gen.run()`) that can be called directly.
 
-**The state store is the load-bearing piece.** `kvittomall/db.py` holds a SQLite database (`kvittomall_state.db`, gitignored) with two tables: `rows` (one row per sheet submission, keyed by its raw `Tidstämpel` timestamp - the one genuinely stable identifier, since a submitter's name can be corrected later) and `attachments` (one row per receipt link within a submission). Every stage treats "is this done?" as a **fail-safe check, never a trusted flag**: a row/attachment only counts as done when the DB says so *and* the recorded file still exists on disk with the expected size *and* a content hash confirms the source sheet row hasn't changed since. Any mismatch resets that item to pending and gets logged with the specific reason - see `db.classify_generated()` and `db.is_download_valid()`/`is_process_valid()`. This is why re-running any stage after an interruption, a deleted file, or an edited sheet row is always safe and never redoes more than necessary.
+**The state store is the load-bearing piece.** `kvittomall/db.py` holds a SQLite database (`data/kvittomall_state.db`, gitignored) with two tables: `rows` (one row per sheet submission, keyed by its raw `Tidstämpel` timestamp - the one genuinely stable identifier, since a submitter's name can be corrected later) and `attachments` (one row per receipt link within a submission). Every stage treats "is this done?" as a **fail-safe check, never a trusted flag**: a row/attachment only counts as done when the DB says so *and* the recorded file still exists on disk with the expected size *and* a content hash confirms the source sheet row hasn't changed since. Any mismatch resets that item to pending and gets logged with the specific reason - see `db.classify_generated()` and `db.is_download_valid()`/`is_process_valid()`. This is why re-running any stage after an interruption, a deleted file, or an edited sheet row is always safe and never redoes more than necessary.
 
 **Sheet/Drive access has two interchangeable backends.** `kvittomall/google_api.py` holds everything shared between them: `get_access_mode()` reads `ACCESS_MODE` from `.env` (`"api"`, `"public"`, or unset/`"auto"`), and `describe()` turns a raw Google/network exception into a plain-language reason (contextualized by which method hit it, since the same HTTP status means something different on each). `sheet.py` and `drive.py` each implement both a service-account API path and the original anonymous-link path, and pick between them the same way: `"public"`/`"api"` use only that method (the latter raising outright if it fails), `"auto"` tries the API and falls back to the public method with a logged `WARNING` if it fails. `drive.py` decides this once per `download` run (one cheap API call), not per file, since a broken key/share affects every file identically.
 
@@ -44,7 +44,7 @@ Single package (`kvittomall/`), one module per pipeline stage plus shared infras
 
 **Logging**: `kvittomall/logging_setup.py` gives every stage a logger writing to `logs/{stage}-{year}-{month}.log` (Swedish/`Europe/Stockholm` timestamps regardless of host timezone, monthly files so they don't grow forever). Console output is WARNING-and-above by design - routine progress is a live progress bar (`kvittomall/progress.py`), coordinated with the logging handler so a warning/error print doesn't get mangled mid-bar.
 
-**Everything under `downloads/`, `processed/`, `final/`, `logs/`, `responses.csv`, `kvittomall_state.db`, `.env`, and any `*.json` (service account key) is gitignored runtime state - none of it is precious.** The Google Sheet is the source of truth; any of these can be deleted and rebuilt with `python -m kvittomall run` (existing valid downloads/processed files get adopted rather than redone, per the fail-safe checks above).
+**`data/` (downloads/, processed/, responses.csv, kvittomall_state.db, the lock file), plus `final/`, `logs/`, `.env`, and any `*.json` (service account key), are all gitignored runtime state - none of it is precious.** `data/` holds everything the pipeline owns and rebuilds itself (see `paths.py`); it's kept separate from `final/` (the actual deliverable output) and `logs/` (kept easy to check without digging in), both of which stay in the repo root. The Google Sheet is the source of truth; any of this can be deleted and rebuilt with `python -m kvittomall run` (existing valid downloads/processed files get adopted rather than redone, per the fail-safe checks above).
 
 ## Module map
 
