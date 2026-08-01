@@ -4,7 +4,7 @@ run lock and never writes anything.
 """
 
 from kvittomall import db
-from kvittomall.config import PREVIOUS_DIRNAME
+from kvittomall.config import NAME_COLUMN, PREVIOUS_DIRNAME, TIMESTAMP_COLUMN, category_for
 from kvittomall.paths import FINAL_DIR
 from kvittomall.rowkey import content_hash
 from kvittomall.sheet import read_rows
@@ -26,7 +26,7 @@ def run() -> None:
         print("-" * 100)
 
         for csv_row in rows:
-            key = csv_row.get("Tidstämpel", "").strip()
+            key = csv_row.get(TIMESTAMP_COLUMN, "").strip()
             db_row = db.get_row(conn, key) if key else None
             if db_row is None:
                 not_synced += 1
@@ -51,8 +51,8 @@ def run() -> None:
                 pending += 1
                 state = reason
 
-            name = csv_row.get("Namn", "")[:20]
-            category = db_row["transaktionstyp"] or ""
+            name = csv_row.get(NAME_COLUMN, "")[:20]
+            category = category_for(csv_row)
             att_summary = f"{downloaded_ok}/{len(attachments)} dl, {processed_ok}/{len(attachments)} proc"
             location = _location(db_row["final_pdf_path"])
             print(f"{key:<22} {name:<20} {category:<16} {att_summary:<14} {location:<9} {state}")

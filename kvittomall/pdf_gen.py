@@ -24,7 +24,7 @@ from reportlab.pdfgen import canvas
 from kvittomall import db
 from kvittomall.atomic import atomic_write
 from kvittomall.config import (
-    PDF_ATTACHMENT_PAGE_TITLE, PDF_SECTIONS, PDF_TITLE_PREFIX, PREVIOUS_DIRNAME,
+    PDF_SECTIONS, PDF_TITLE_PREFIX, PREVIOUS_DIRNAME,
     RECEIPT_LINKS_COLUMN, TRANSACTION_TYPE_COLUMN, category_for,
 )
 from kvittomall.logging_setup import run_timer, setup_logging
@@ -82,10 +82,14 @@ def _draw_page_header(c: canvas.Canvas, title: str) -> None:
     c.drawString(MARGIN_SIDE, PAGE_HEIGHT - MARGIN_TOP, title)
 
 
+def _page_title(row: dict) -> str:
+    return f"{PDF_TITLE_PREFIX}{row.get(TRANSACTION_TYPE_COLUMN, '')}"
+
+
 def _build_text_page(row: dict) -> PdfReader:
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
-    _draw_page_header(c, f"{PDF_TITLE_PREFIX}{row.get(TRANSACTION_TYPE_COLUMN, '')}")
+    _draw_page_header(c, _page_title(row))
 
     y = PAGE_HEIGHT - 5 * cm
     max_text_width = PAGE_WIDTH - (2 * MARGIN_SIDE)
@@ -121,7 +125,7 @@ def _build_text_page(row: dict) -> PdfReader:
     return PdfReader(buffer)
 
 
-def _scale_pdf_to_a4(input_pdf_path: str) -> PdfReader:
+def _scale_pdf_to_a4(input_pdf_path: str, title: str) -> PdfReader:
     """Scales an attachment PDF's pages to fit below the header, preserving vector quality."""
     input_pdf = PdfReader(input_pdf_path)
     writer = PdfWriter()
@@ -138,7 +142,7 @@ def _scale_pdf_to_a4(input_pdf_path: str) -> PdfReader:
 
         header_buffer = BytesIO()
         c = canvas.Canvas(header_buffer, pagesize=A4)
-        _draw_page_header(c, PDF_ATTACHMENT_PAGE_TITLE)
+        _draw_page_header(c, title)
         c.save()
         output_page = PdfReader(header_buffer).pages[0]
 
@@ -152,10 +156,10 @@ def _scale_pdf_to_a4(input_pdf_path: str) -> PdfReader:
     return PdfReader(buffer)
 
 
-def _image_page(image_path: str) -> PdfReader:
+def _image_page(image_path: str, title: str) -> PdfReader:
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
-    _draw_page_header(c, PDF_ATTACHMENT_PAGE_TITLE)
+    _draw_page_header(c, title)
 
     img = ImageReader(image_path)
     iw, ih = img.getSize()
@@ -177,13 +181,14 @@ def _build_final_pdf(row: dict, attachment_paths: list[str]) -> bytes:
     for page in _build_text_page(row).pages:
         writer.add_page(page)
 
+    title = _page_title(row)
     for path in attachment_paths:
         ext = os.path.splitext(path)[1].lower()
         try:
             if ext in (".jpg", ".jpeg"):
-                reader = _image_page(path)
+                reader = _image_page(path, title)
             elif ext == ".pdf":
-                reader = _scale_pdf_to_a4(path)
+                reader = _scale_pdf_to_a4(path, title)
             else:
                 logger.warning(f"Skipping attachment with unsupported extension: {path}")
                 continue

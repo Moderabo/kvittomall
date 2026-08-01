@@ -142,9 +142,6 @@ def fetch_and_save(sheet_id: str, sheet_gid: str, csv_path: str = RESPONSES_CSV)
 
 
 def run() -> None:
-    from dotenv import load_dotenv
-    load_dotenv()
-
     sheet_id = os.getenv("SHEET_ID")
     sheet_gid = os.getenv("SHEET_GID")
 
