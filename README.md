@@ -53,7 +53,10 @@ pip install -r requirements.txt
     SHEET_GID="din_sheet_gid_här"
     ```
 
-2. **`logo.png`** i rotmappen. Läggs till på varje sida i de genererade PDF:erna.
+2. **Logotyp**: filen `LOGO` pekar på i [kvittomall/config.py](kvittomall/config.py) (standard: `logo.svg`) läggs till i övre högra hörnet på varje sida i de genererade PDF:erna - både på försättsbladet och på varje bifogat kvitto. Filen ska ligga i projektets rotmapp.
+    - **SVG rekommenderas.** En riktig vektorlogotyp (inte en SVG som bara omsluter en rastrerad bild) blir dramatiskt mycket mindre i den färdiga PDF:en jämfört med samma logga som PNG/JPG - logotypen ritas om på varje sida, så skillnaden märks särskilt i kvitton med flera bilagor.
+    - **PNG/JPG fungerar också** och väljs automatiskt om `LOGO` inte slutar på `.svg`. Använd då en tillräckligt hög upplösning för att inte bli suddig i utskrift - men räkna med betydligt större PDF-filer än med SVG.
+    - **För att byta logga**: lägg filen i rotmappen och ändra `LOGO = "..."` i `config.py` till dess filnamn.
 
 3. **Kvittomallens innehåll**: vilka fält som visas på försättsbladet styrs av `PDF_SECTIONS` i [kvittomall/config.py](kvittomall/config.py) - varje etikett mappas där till en kolumn i kalkylbladet.
 

@@ -48,7 +48,7 @@ IMAGE_QUALITY = _env("IMAGE_QUALITY", "normal")
 
 # --- PDF text content ---
 PDF_TITLE_PREFIX = "Kvittomall - "
-LOGO = "logo.png"
+LOGO = "logo.svg"
 
 
 def _swedish_decimal(value: str) -> str:
