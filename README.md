@@ -63,6 +63,16 @@ pip install -r requirements.txt
     ```
     Se toppen av `config.py` för hela listan av `SHEET_COLUMN_*`-variabler och vilken standardtext de motsvarar.
 
+5. **Bildkvalitet vid komprimering**: hur hårt uppladdade kvittobilder komprimeras innan de läggs in i PDF:en styrs av `IMAGE_QUALITY` - standardvärdet (`"normal"`) sätts i `config.py`, precis som kolumnnamnen ovan, och kan valfritt ändras direkt där eller överstyras per miljö via `.env`. Målet är alltid *läsbart*, aldrig *snyggt*. Fem lägen, från högst till lägst kvalitet:
+    ```
+    IMAGE_QUALITY="normal"   # extreme | high | normal (standard) | low | potato
+    ```
+    - `extreme` - ingen storleksändring eller kvalitetssänkning, bara anpassning till sidan.
+    - `high` / `normal` / `low` - stegvis hårdare komprimering och nedskalning.
+    - `potato` - skalas ner till 480px på långsidan och komprimeras hårt; använd bara om filstorlek är ett större problem än läsbarhet.
+
+    Ändrar man `IMAGE_QUALITY` gäller det bara bilder som bearbetas *efter* ändringen - redan bearbetade filer i `data/processed/` räknas fortfarande som klara och byggs inte om automatiskt.
+
 ### Åtkomst till kalkylbladet och Drive: publikt eller service account
 
 Verktyget kan hämta data på två sätt, styrt av `ACCESS_MODE` i `.env`:

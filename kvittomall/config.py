@@ -15,30 +15,36 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def _column(env_var: str, default: str) -> str:
-    """A sheet column's exact header text. The Google Form behind this pipeline can
-    differ between deployments (different wording for the same question), so every
-    column name is overridable via the matching env var in .env instead of requiring
-    a code change.
+def _env(env_var: str, default: str) -> str:
+    """A setting's default value, optionally overridden by an env var - used for both
+    sheet column names (the Google Form's wording can differ between deployments) and
+    plain settings like IMAGE_QUALITY below, so every one of them can be changed via
+    .env without requiring a code change.
     """
     return os.getenv(env_var, default)
 
 
 # --- CSV column names, exactly as they appear in the Google Sheet - each overridable
 # via the matching SHEET_COLUMN_* variable in .env. ---
-TIMESTAMP_COLUMN = _column("SHEET_COLUMN_TIMESTAMP", "Tidstämpel")
-NAME_COLUMN = _column("SHEET_COLUMN_NAME", "Namn")
-RECEIPT_LINKS_COLUMN = _column("SHEET_COLUMN_RECEIPT_LINKS", "Ladda upp bild")
-TRANSACTION_TYPE_COLUMN = _column("SHEET_COLUMN_TRANSACTION_TYPE", "Transaktionstyp")
-SUM_COLUMN = _column("SHEET_COLUMN_SUM", "Summa")
-DATE_COLUMN = _column("SHEET_COLUMN_DATE", "Datum för händelsen")
-MIL_COLUMN = _column("SHEET_COLUMN_MIL", "Körda mil")
-ROUTE_COLUMN = _column("SHEET_COLUMN_ROUTE", "Sträcka")
-ACCOUNT_COLUMN = _column("SHEET_COLUMN_ACCOUNT", "Kontonummer")
-COMMITTEE_COLUMN = _column("SHEET_COLUMN_COMMITTEE", "Utskott")
-EVENT_COLUMN = _column("SHEET_COLUMN_EVENT", "Arrangemang")
-SPECIFICATION_COLUMN = _column("SHEET_COLUMN_SPECIFICATION", "Specificering")
-OTHER_COLUMN = _column("SHEET_COLUMN_OTHER", "Övrigt")
+TIMESTAMP_COLUMN = _env("SHEET_COLUMN_TIMESTAMP", "Tidstämpel")
+NAME_COLUMN = _env("SHEET_COLUMN_NAME", "Namn")
+RECEIPT_LINKS_COLUMN = _env("SHEET_COLUMN_RECEIPT_LINKS", "Ladda upp bild")
+TRANSACTION_TYPE_COLUMN = _env("SHEET_COLUMN_TRANSACTION_TYPE", "Transaktionstyp")
+SUM_COLUMN = _env("SHEET_COLUMN_SUM", "Summa")
+DATE_COLUMN = _env("SHEET_COLUMN_DATE", "Datum för händelsen")
+MIL_COLUMN = _env("SHEET_COLUMN_MIL", "Körda mil")
+ROUTE_COLUMN = _env("SHEET_COLUMN_ROUTE", "Sträcka")
+ACCOUNT_COLUMN = _env("SHEET_COLUMN_ACCOUNT", "Kontonummer")
+COMMITTEE_COLUMN = _env("SHEET_COLUMN_COMMITTEE", "Utskott")
+EVENT_COLUMN = _env("SHEET_COLUMN_EVENT", "Arrangemang")
+SPECIFICATION_COLUMN = _env("SHEET_COLUMN_SPECIFICATION", "Specificering")
+OTHER_COLUMN = _env("SHEET_COLUMN_OTHER", "Övrigt")
+
+# --- Receipt image compression, used by media.py's process stage. One of "extreme",
+# "high", "normal", "low", "potato" (see media.py's QUALITY_PRESETS for what each
+# means) - overridable via IMAGE_QUALITY in .env. media.py validates the value, since
+# it's the one that knows which names are actually valid.
+IMAGE_QUALITY = _env("IMAGE_QUALITY", "normal")
 
 # --- PDF text content ---
 PDF_TITLE_PREFIX = "Kvittomall - "
