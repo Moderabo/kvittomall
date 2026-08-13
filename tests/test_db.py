@@ -1,13 +1,6 @@
-import pytest
-
 from kvittomall import db
 
-
-@pytest.fixture
-def conn(monkeypatch, tmp_path):
-    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "state.db"))
-    with db.connect() as c:
-        yield c
+# conn fixture lives in conftest.py - shared with test_pdf_gen.py's orchestration tests.
 
 
 def test_upsert_row_insert_then_update(conn):

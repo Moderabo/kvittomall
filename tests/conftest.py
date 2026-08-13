@@ -16,6 +16,16 @@ paths.LOGS_DIR = tempfile.mkdtemp(prefix="kvittomall-test-logs-")
 
 import pytest  # noqa: E402
 
+from kvittomall import db  # noqa: E402
+
+
+@pytest.fixture
+def conn(monkeypatch, tmp_path):
+    """A fresh, isolated SQLite connection - never the real data/kvittomall_state.db."""
+    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "state.db"))
+    with db.connect() as c:
+        yield c
+
 
 @pytest.fixture
 def sample_row() -> dict:
