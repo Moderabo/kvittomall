@@ -47,7 +47,7 @@ pip install -r requirements.txt
 
 ## Konfiguration
 
-1. **`.env`-fil** i projektets rotmapp, med Google Sheet-uppgifterna:
+1. **`.env`-fil** i projektets rotmapp, med Google Sheet-uppgifterna. [.env.example](.env.example) listar alla tillgängliga variabler (med sina standardvärden utkommenterade) och kan användas som utgångspunkt - kopiera den till `.env` och fyll i det som behövs:
     ```
     SHEET_ID="din_sheet_id_här"
     SHEET_GID="din_sheet_gid_här"
@@ -88,7 +88,28 @@ Vid `api` eller `auto` behövs även:
 ```
 GOOGLE_SERVICE_ACCOUNT_FILE="/sökväg/till/service-account-nyckel.json"
 ```
-Håll nyckelfilen utanför git (den ska inte checkas in) och begränsa dess filrättigheter - den fungerar som ett lösenord till service accountet.
+Håll nyckelfilen utanför git (den ska inte checkas in) och begränsa dess filrättigheter - den fungerar som ett lösenord till service accountet. Vem som helst med filen kan läsa allt som delats med service accountets e-postadress (hela kalkylblad, inte bara den flik verktyget faktiskt läser, och hela Drive-mappar, inte bara kvittona) - dela den därför bara med de som behöver den, och dela bara den specifika kalkylbladsfilen och den specifika kvittomappen med service accountet, inte t.ex. en överordnad mapp eller hela Drive.
+
+#### Hitta och hantera nyckeln i Google Cloud Console
+
+1. Gå till [console.cloud.google.com](https://console.cloud.google.com) och logga in med det Google-konto som administrerar projektet (t.ex. skattmästarens).
+2. Öppna menyn längst upp till vänster och välj **APIs & Services** (API:er och tjänster).
+3. Välj **kvittomall** som projekt - härifrån ser man allt som hör till verktyget (aktiverade API:er, service accountet, nycklar).
+4. Välj **Credentials** (Autentiseringsuppgifter) i vänstermenyn.
+5. Klicka på service accountet i listan för att se dess detaljer och senaste aktivitet.
+6. Välj fliken **Keys** (Nycklar). Här listas alla nycklar som skapats för service accountet - härifrån skapas nya (ner som JSON), och gamla tas bort (återkallas/revoke:as).
+
+#### Nyckelhantering - skattmästarens val
+
+Det finns ingen enda rätt modell, bara en avvägning mellan säkerhet och enkelhet:
+
+- **En delad nyckel för alla** - samma JSON-fil delas med alla som behöver köra verktyget, oavsett om de jobbar mot olika Google Forms eller inte.
+- **En nyckel per Google Form** - separat nyckel per formulär/kalkylblad.
+- **En nyckel per person** - var och en som kör verktyget får sin egen nyckel.
+
+Nycklar kan när som helst återkallas i Google Cloud Console, t.ex. när någon lämnar sin post - eller så litar man på att personen själv tar bort filen från sin dator när den inte längre behövs.
+
+**Rekommendation**: en delad nyckel för alla, även över flera Google Forms. Vid terminens/verksamhetsårets slut återkallas nyckeln och en ny skapas och delas med den nya styrelsen/kassörerna. Det balanserar säkerhet (nyckeln lever aldrig längre än en post) mot enkelhet (ingen löpande administration av vem som har vilken nyckel under året).
 
 ## Användning
 
@@ -119,3 +140,15 @@ De färdiga rapporterna hamnar i:
 - `final/previous/privat/`, `final/previous/sektionskort/`, `final/previous/milersättning/`, `final/previous/övrigt/` - allt äldre.
 
 Om en fil tas bort av misstag men innehållet på kalkylbladet inte ändrats, återskapas den vid nästa körning på exakt samma plats den låg på (kategorimappen eller `previous/`) - det räknas inte som nytt och flyttar inget annat.
+
+## Utveckling
+
+```sh
+pip install -r requirements-dev.txt                     # lägger till pytest + pytest-cov ovanpå requirements.txt
+pytest                                                    # kör hela testsviten (tests/)
+pytest --cov=kvittomall --cov-report=term-missing         # samma, men med en rad per fil som visar hur stor andel som testas
+```
+
+Testerna rör aldrig de riktiga `data/`/`final/`/`logs/`-mapparna - de körs mot temporära kataloger. En [GitHub Actions](.github/workflows/tests.yml)-workflow kör samma sak (inklusive täckningsrapporten) på varje push/PR - resultatet syns i det körningens logg på fliken "Actions" på GitHub.
+
+Täckningen är inte heltäckande med avsikt: ren logik och de säkerhetskontroller som avgör om något redan är klart (`rowkey.py`, `db.py`, `config.py`, med flera) är väl testade, medan de faktiska nätverksanropen mot Google Sheets/Drive och `cli.py`s kommandoradshantering inte är det - se `CLAUDE.md` för den fullständiga motiveringen.
