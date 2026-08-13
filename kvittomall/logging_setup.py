@@ -23,10 +23,10 @@ from kvittomall.paths import LOGS_DIR
 
 STOCKHOLM = ZoneInfo("Europe/Stockholm")
 
-# PyPDF2 logs benign warnings (e.g. malformed-but-recoverable PDF structures) straight
+# pypdf logs benign warnings (e.g. malformed-but-recoverable PDF structures) straight
 # to the console via Python's root logger, bypassing our own error-only console policy.
 # Silencing it here keeps "only errors on screen" true for third-party noise too.
-logging.getLogger("PyPDF2").setLevel(logging.ERROR)
+logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 
 class _StockholmFormatter(logging.Formatter):

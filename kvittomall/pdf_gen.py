@@ -16,7 +16,7 @@ import os
 from functools import lru_cache
 from io import BytesIO
 
-from PyPDF2 import PdfReader, PdfWriter, Transformation
+from pypdf import PdfReader, PdfWriter, Transformation
 from reportlab.graphics import renderPDF
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm

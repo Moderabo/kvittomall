@@ -7,4 +7,4 @@ Pillow==12.0.0
 pillow_heif==1.1.1
 reportlab==4.4.5
 svglib==2.1.0
-PyPDF2==3.0.1
+pypdf==6.15.0

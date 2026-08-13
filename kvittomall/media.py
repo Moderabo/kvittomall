@@ -20,7 +20,7 @@ from typing import Optional
 
 import magic
 from PIL import Image, ImageOps
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from kvittomall import db
 from kvittomall.atomic import atomic_write
