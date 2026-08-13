@@ -170,11 +170,17 @@ def _scale_pdf_to_a4(input_pdf_path: str, title: str) -> PdfReader:
         c = canvas.Canvas(header_buffer, pagesize=A4)
         _draw_page_header(c, title)
         c.save()
-        output_page = PdfReader(header_buffer).pages[0]
+        header_page = PdfReader(header_buffer).pages[0]
 
-        page.add_transformation(Transformation().scale(scale).translate(tx, ty))
-        output_page.merge_page(page)
-        writer.add_page(output_page)
+        # pypdf wants a page attached to its writer *before* its content is transformed
+        # or merged - doing either on an orphan PageObject is deprecated (pypdf >=6) as
+        # unreliable. merge_transformed_page() applies the transform as part of the
+        # merge itself, so the source `page` never needs add_transformation() called on
+        # it directly - only the already-attached `added_page` (A4-sized, from the
+        # header canvas) gets mutated, which is why it keeps the A4 mediabox regardless
+        # of the attachment's original page size.
+        added_page = writer.add_page(header_page)
+        added_page.merge_transformed_page(page, Transformation().scale(scale).translate(tx, ty))
 
     buffer = BytesIO()
     writer.write(buffer)
