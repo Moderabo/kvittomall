@@ -13,13 +13,16 @@ was - category folder or previous/ - rather than being surfaced as "new" again.
 """
 
 import os
+from functools import lru_cache
 from io import BytesIO
 
-from PyPDF2 import PdfReader, PdfWriter, Transformation
+from pypdf import PdfReader, PdfWriter, Transformation
+from reportlab.graphics import renderPDF
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
+from svglib.svglib import svg2rlg
 
 from kvittomall import db
 from kvittomall.atomic import atomic_write
@@ -69,15 +72,38 @@ def _wrap_text(c: canvas.Canvas, text: str, max_width: float) -> list[str]:
     return lines
 
 
+@lru_cache(maxsize=1)
+def _load_svg_logo(path: str):
+    """Cached since it's re-drawn on every page - the parsed drawing is never mutated
+    by _draw_svg_logo (scaling happens via the canvas's transform stack instead), so
+    it's safe to reuse across calls.
+    """
+    return svg2rlg(path)
+
+
+def _draw_svg_logo(c: canvas.Canvas, path: str, x: float, y: float, size: float) -> None:
+    drawing = _load_svg_logo(path)
+    scale = size / max(drawing.width, drawing.height)
+    c.saveState()
+    c.translate(x, y)
+    c.scale(scale, scale)
+    renderPDF.draw(drawing, c, 0, 0)
+    c.restoreState()
+
+
 def _draw_page_header(c: canvas.Canvas, title: str) -> None:
     if os.path.exists(LOGO_PATH):
-        c.drawImage(
-            ImageReader(LOGO_PATH),
-            PAGE_WIDTH - LOGO_SIZE - LOGO_MARGIN,
-            PAGE_HEIGHT - LOGO_SIZE - LOGO_MARGIN,
-            width=LOGO_SIZE, height=LOGO_SIZE,
-            preserveAspectRatio=True, mask="auto",
-        )
+        x = PAGE_WIDTH - LOGO_SIZE - LOGO_MARGIN
+        y = PAGE_HEIGHT - LOGO_SIZE - LOGO_MARGIN
+        if LOGO_PATH.lower().endswith(".svg"):
+            _draw_svg_logo(c, LOGO_PATH, x, y, LOGO_SIZE)
+        else:
+            c.drawImage(
+                ImageReader(LOGO_PATH),
+                x, y,
+                width=LOGO_SIZE, height=LOGO_SIZE,
+                preserveAspectRatio=True, mask="auto",
+            )
     c.setFont(FONT_BOLD, HEADER_FONT_SIZE)
     c.drawString(MARGIN_SIDE, PAGE_HEIGHT - MARGIN_TOP, title)
 
@@ -144,11 +170,17 @@ def _scale_pdf_to_a4(input_pdf_path: str, title: str) -> PdfReader:
         c = canvas.Canvas(header_buffer, pagesize=A4)
         _draw_page_header(c, title)
         c.save()
-        output_page = PdfReader(header_buffer).pages[0]
+        header_page = PdfReader(header_buffer).pages[0]
 
-        page.add_transformation(Transformation().scale(scale).translate(tx, ty))
-        output_page.merge_page(page)
-        writer.add_page(output_page)
+        # pypdf wants a page attached to its writer *before* its content is transformed
+        # or merged - doing either on an orphan PageObject is deprecated (pypdf >=6) as
+        # unreliable. merge_transformed_page() applies the transform as part of the
+        # merge itself, so the source `page` never needs add_transformation() called on
+        # it directly - only the already-attached `added_page` (A4-sized, from the
+        # header canvas) gets mutated, which is why it keeps the A4 mediabox regardless
+        # of the attachment's original page size.
+        added_page = writer.add_page(header_page)
+        added_page.merge_transformed_page(page, Transformation().scale(scale).translate(tx, ty))
 
     buffer = BytesIO()
     writer.write(buffer)

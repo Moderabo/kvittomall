@@ -1,0 +1,5 @@
+# Adds test dependencies on top of the runtime ones - not needed just to run the
+# pipeline, only to run the test suite (pytest, invoked via `pytest` from repo root).
+-r requirements.txt
+pytest==9.1.1
+pytest-cov==7.1.0

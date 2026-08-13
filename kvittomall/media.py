@@ -1,21 +1,30 @@
 """Stage 3: normalize each downloaded attachment into processed/.
 
-Images are re-encoded as JPEG using adaptive compression - starting at high quality and
-only stepping down as far as needed to hit a target size, with a floor that protects
-legibility, and dimensions are only reduced as a last resort. PDFs pass through as-is;
-final page scaling/merging happens in pdf_gen.py.
+Images are re-encoded as JPEG using adaptive compression - starting at a preset's
+highest quality step and only stepping down as far as needed to hit a target size,
+with dimensions only reduced as a last resort. PDFs pass through as-is; final page
+scaling/merging happens in pdf_gen.py.
+
+How hard to compress is a legibility-vs-size tradeoff, not a looks-good-vs-size one -
+a receipt only needs to be readable, so IMAGE_QUALITY in .env picks one of five presets
+(QUALITY_PRESETS below), from "extreme" (full quality, no resize) down to "potato"
+(480px, compressed hard). Defaults to "normal" - the tradeoff this project shipped with
+originally - if unset.
 """
 
 import io
 import os
 import shutil
+from dataclasses import dataclass
+from typing import Optional
 
 import magic
 from PIL import Image, ImageOps
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 from kvittomall import db
 from kvittomall.atomic import atomic_write
+from kvittomall.config import IMAGE_QUALITY
 from kvittomall.logging_setup import run_timer, setup_logging
 from kvittomall.paths import PROCESSED_DIR
 from kvittomall.progress import ProgressBar
@@ -24,11 +33,28 @@ from kvittomall.sheet import read_rows
 
 logger = setup_logging("process")
 
-MAX_DIMENSION = 2000
-QUALITY_STEPS = [90, 80, 70, 60, 50]  # 50 is the legibility floor - never go lower
-TARGET_BYTES = 500_000  # per-image target, keeps multi-receipt PDFs small
-HARD_CEILING = 1_500_000  # still this big at floor quality -> shrink dimensions and retry
-MAX_DIMENSION_ROUNDS = 2
+
+@dataclass(frozen=True)
+class QualityPreset:
+    max_dimension: Optional[int]  # longest side in px; None = never resize
+    quality_steps: list[int]      # tried highest-first; stops at the first that fits target_bytes
+    target_bytes: Optional[int]   # None = accept the first (only) quality step's result outright
+    hard_ceiling: Optional[int]   # still over this after every quality step -> shrink dims and retry
+    dimension_rounds: int = 2
+
+
+QUALITY_PRESETS: dict[str, QualityPreset] = {
+    "extreme": QualityPreset(None, [95], None, None, dimension_rounds=1),
+    "high": QualityPreset(2600, [90, 82, 75], 150_000, 300_000),
+    "normal": QualityPreset(2000, [90, 80, 70, 60, 50], 60_000, 150_000),
+    "low": QualityPreset(1200, [70, 55, 40], 30_000, 75_000),
+    "potato": QualityPreset(480, [40, 25], 15_000, 40_000),
+}
+def get_quality_preset() -> QualityPreset:
+    name = IMAGE_QUALITY.lower()
+    if name not in QUALITY_PRESETS:
+        raise SystemExit(f"IMAGE_QUALITY must be one of {sorted(QUALITY_PRESETS)}, got '{name}'")
+    return QUALITY_PRESETS[name]
 
 
 def _downscale(img: Image.Image, max_dim: float) -> Image.Image:
@@ -45,15 +71,17 @@ def _encode_jpeg(img: Image.Image, quality: int) -> bytes:
     return buf.getvalue()
 
 
-def encode_adaptive(img: Image.Image, max_dim: float = MAX_DIMENSION) -> bytes:
+def encode_adaptive(img: Image.Image, preset: QualityPreset) -> bytes:
     data = b""
-    for _round in range(MAX_DIMENSION_ROUNDS):
-        img = _downscale(img, max_dim)
-        for quality in QUALITY_STEPS:
+    max_dim = preset.max_dimension
+    for _round in range(preset.dimension_rounds):
+        if max_dim is not None:
+            img = _downscale(img, max_dim)
+        for quality in preset.quality_steps:
             data = _encode_jpeg(img, quality)
-            if len(data) <= TARGET_BYTES:
+            if preset.target_bytes is None or len(data) <= preset.target_bytes:
                 return data
-        if len(data) <= HARD_CEILING:
+        if max_dim is None or preset.hard_ceiling is None or len(data) <= preset.hard_ceiling:
             return data
         max_dim *= 0.75
     return data
@@ -66,7 +94,7 @@ def _open_image(path: str, mime: str) -> Image.Image:
     return Image.open(path)
 
 
-def _process_one(conn, row_key: str, link_index: int, src_path: str) -> None:
+def _process_one(conn, row_key: str, link_index: int, src_path: str, preset: QualityPreset) -> None:
     base_name = os.path.splitext(os.path.basename(src_path))[0]
     try:
         mime = magic.from_file(src_path, mime=True)
@@ -85,7 +113,7 @@ def _process_one(conn, row_key: str, link_index: int, src_path: str) -> None:
                 img = _open_image(src_path, mime)
                 img = ImageOps.exif_transpose(img).convert("RGB")
                 with open(tmp_path, "wb") as f:
-                    f.write(encode_adaptive(img))
+                    f.write(encode_adaptive(img, preset))
 
             def validate(tmp_path: str) -> None:
                 with Image.open(tmp_path) as im:
@@ -136,8 +164,18 @@ def _adopt_existing(conn, row_key: str, link_index: int, path: str) -> bool:
 
 
 def run() -> None:
+    with run_timer(logger, "process"):
+        try:
+            preset = get_quality_preset()
+        except SystemExit as e:
+            logger.error(f"Process failed before it could start: {e}")
+            raise SystemExit(1)
+        _process_all(preset)
+
+
+def _process_all(preset: QualityPreset) -> None:
     rows = read_rows()
-    with db.connect() as conn, run_timer(logger, "process"), ProgressBar(len(rows), "Processing") as bar:
+    with db.connect() as conn, ProgressBar(len(rows), "Processing") as bar:
         for i, row in enumerate(rows):
             row_key = sync_row(conn, row)
             if row_key is None:
@@ -158,6 +196,6 @@ def run() -> None:
                     continue
 
                 logger.info(f"Row {i} attachment {att['link_index']}: processing ({reason})")
-                _process_one(conn, row_key, att["link_index"], att["download_path"])
+                _process_one(conn, row_key, att["link_index"], att["download_path"], preset)
 
             bar.update()
