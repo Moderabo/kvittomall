@@ -159,6 +159,22 @@ De färdiga rapporterna hamnar i:
 
 Om en fil tas bort (av misstag, eller med `remove`) men innehållet på kalkylbladet inte ändrats, återskapas den vid nästa körning på exakt samma plats den låg på (kategorimappen eller `handled/`) - det räknas inte som nytt och flyttar inget annat.
 
+### Webbgränssnitt
+
+Som ett alternativ till kommandona ovan finns en lokal webbsida med samma funktioner:
+
+```sh
+python -m kvittomall webui
+```
+
+Öppna sedan `http://127.0.0.1:5000` i webbläsaren. Verktyget lyssnar som standard på alla nätverksgränssnitt (inte bara den egna maskinen), så det går även att nå från en annan dator på samma nätverk via `http://<serverns-ip>:5000` - praktiskt om verktyget körs på en server/VM. Adress och port kan ändras via `WEBUI_HOST`/`WEBUI_PORT` i `.env`, se [.env.example](.env.example).
+
+Instrumentpanelen har samma knappar som kommandona ovan (fetch/download/process/generate/run/markera hanterat), och en sorterbar, filtrerbar lista över alla rader direkt under knapparna - klicka på kolumnrubrikerna för att sortera, eller skriv i filterfälten under varje rubrik för att bara visa matchande rader (flera filter kombineras - t.ex. ett utskott och status "handled" samtidigt). Klicka på en rad för att se dess kvitton, bearbetade bilder, färdiga PDF och alla andra ifyllda fält från kalkylbladet, samt köra/ta bort filer för/markera hanterat på just den raden.
+
+**Ingen inloggning krävs** - vem som helst som når adressen (t.ex. alla på samma nätverk, om `WEBUI_HOST` lyssnar brett) kan trigga körningar och ta bort filer. Lämpligt på ett förtroendefullt hemma-/kontorsnätverk, men exponera inte porten mot internet utan att lägga till någon form av autentisering först.
+
+Den röda **"Rensa allt"**-knappen längst ner återställer `data/` och `final/` helt - databasen, alla nedladdade/bearbetade filer och alla genererade PDF:er (hanterade eller ej) raderas permanent, och samma tomma mappstruktur som vid en helt ny installation skapas igen. `logs/` rörs inte. Detta går inte att ångra, och knappen ber alltid om bekräftelse innan den kör. Motsvarande kommando finns inte i terminalen - det är medvetet bara tillgängligt via webbgränssnittet.
+
 ## Utveckling
 
 ```sh
