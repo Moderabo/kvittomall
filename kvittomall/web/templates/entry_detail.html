@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>kvittomall - {{ info.name or row_key }}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.3rem; margin-bottom: 0.2rem; }
+    nav { margin-bottom: 1rem; }
+    nav a { color: #555; text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
+    .meta { color: #555; margin-bottom: 1.2rem; }
+    .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 1rem; font-size: 0.8rem; }
+    .badge.valid { background: #e6f4ea; color: #1a7f37; }
+    .badge.error { background: #fbe9e7; color: #b3261e; }
+    .badge.repair { background: #fff4e5; color: #a15c00; }
+    .badge.pending { background: #eef1f5; color: #444; }
+    .badge.not_synced { background: #f0f0f0; color: #777; }
+    .badge.handled { background: #e8eaf6; color: #3949ab; }
+    section { margin-bottom: 1.8rem; }
+    h2 { font-size: 1rem; color: #333; border-bottom: 1px solid #e5e5e5; padding-bottom: 0.3rem; }
+    .attachment { display: flex; align-items: center; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid #f0f0f0; }
+    .attachment img { max-height: 80px; border-radius: 4px; border: 1px solid #ddd; }
+    .attachment .label { width: 5rem; color: #555; font-size: 0.85rem; }
+    .attachment a { font-size: 0.9rem; }
+    .missing { color: #999; font-size: 0.9rem; }
+    .field { padding: 0.3rem 0; border-bottom: 1px solid #f5f5f5; font-size: 0.9rem; }
+    .field-label { color: #555; margin-right: 0.4rem; }
+    .actions { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
+    button { padding: 0.4rem 1rem; cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: 0.5; }
+    .status { font-size: 0.9rem; color: #555; }
+    .status.ok { color: #1a7f37; }
+    .status.fail { color: #b3261e; }
+    .status.running { color: #a15c00; }
+  </style>
+</head>
+<body>
+  <nav><a href="{{ url_for('index') }}">&larr; Dashboard</a></nav>
+  <h1>{{ info.name or '(no name)' }}</h1>
+  <div class="meta">
+    {{ info.category }} &middot; <span class="badge {{ info.kind }}">{{ info.state }}</span>
+  </div>
+
+  <section>
+    <h2>Details</h2>
+    {% for column, value in info.fields %}
+    <div class="field"><span class="field-label">{{ column }}:</span>{{ value }}</div>
+    {% endfor %}
+  </section>
+
+  <section>
+    <h2>Attachments</h2>
+    {% if info.attachments %}
+      {% for a in info.attachments %}
+      <div class="attachment">
+        <span class="label">#{{ a.link_index }}</span>
+        {% if a.downloaded_ok and a.download_is_image %}
+          <a href="{{ url_for('entry_download_file', row_key=row_key, link_index=a.link_index) }}" target="_blank">
+            <img src="{{ url_for('entry_download_file', row_key=row_key, link_index=a.link_index) }}" alt="downloaded attachment {{ a.link_index }}">
+          </a>
+        {% elif a.downloaded_ok %}
+          <a href="{{ url_for('entry_download_file', row_key=row_key, link_index=a.link_index) }}" target="_blank">Downloaded ({{ a.download_ext }})</a>
+        {% else %}
+          <span class="missing">not downloaded</span>
+        {% endif %}
+        {% if a.processed_ok and a.processed_is_image %}
+          <a href="{{ url_for('entry_processed_file', row_key=row_key, link_index=a.link_index) }}" target="_blank">
+            <img src="{{ url_for('entry_processed_file', row_key=row_key, link_index=a.link_index) }}" alt="processed attachment {{ a.link_index }}">
+          </a>
+        {% elif a.processed_ok %}
+          <a href="{{ url_for('entry_processed_file', row_key=row_key, link_index=a.link_index) }}" target="_blank">Processed (PDF)</a>
+        {% else %}
+          <span class="missing">not processed</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="missing">No receipt links on this entry.</p>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>Final PDF</h2>
+    {% if info.final_pdf_exists %}
+      <a href="{{ url_for('entry_final_file', row_key=row_key) }}" target="_blank">Open final PDF</a>
+      ({{ info.location }}{% if info.kind not in ('valid', 'handled') %}, out of date{% endif %})
+    {% else %}
+      <span class="missing">not generated</span>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>Actions</h2>
+    <div class="actions" data-row-key="{{ row_key | tojson }}">
+      <button data-run="download">Download</button>
+      <button data-run="process">Process</button>
+      <button data-run="generate">Generate</button>
+      <button data-run-all>Run all (this entry)</button>
+      <button data-run="handled" data-eligible="{{ 'true' if info.final_pdf_path else 'false' }}">{{ 'Unmark handled' if info.kind == 'handled' else 'Mark handled' }}</button>
+      <span class="status" id="action-status"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Remove files</h2>
+    <p class="missing">Deletes files from disk only - never the CSV, database, or this entry's listing. A later run just re-downloads/re-processes/regenerates whatever's missing.</p>
+    <div class="actions">
+      <button data-remove="downloads">Remove downloaded files</button>
+      <button data-remove="processed">Remove processed files</button>
+      <button data-remove="final">Remove final PDF</button>
+      <button data-remove="all">Remove all files</button>
+      <span class="status remove-status"></span>
+    </div>
+  </section>
+
+  <script>
+    const ROW_KEY = {{ row_key | tojson }};
+    const STAGES = ["download", "process", "generate", "handled"];
+    const REMOVE_TARGETS = ["downloads", "processed", "final", "all"];
+
+    function keyFor(stage) {
+      return stage === "run" ? `run:${ROW_KEY}` : `${stage}:${ROW_KEY}`;
+    }
+
+    function removeKeyFor(what) {
+      return `remove-${what}:${ROW_KEY}`;
+    }
+
+    function render(state) {
+      const running = state.running;
+      const results = state.results;
+      const anyRunningHere = STAGES.some(s => running === keyFor(s)) || running === keyFor("run");
+      const statusEl = document.getElementById("action-status");
+
+      document.querySelectorAll("[data-run]").forEach(btn => {
+        const eligible = btn.dataset.eligible !== "false";
+        btn.disabled = running !== null || !eligible;
+      });
+      document.querySelector("[data-run-all]").disabled = running !== null;
+
+      let activeKey = null;
+      if (anyRunningHere) {
+        activeKey = running;
+      } else {
+        for (const s of [...STAGES, "run"]) {
+          if (results[keyFor(s)]) activeKey = keyFor(s);
+        }
+      }
+
+      if (anyRunningHere) {
+        statusEl.textContent = "Running...";
+        statusEl.className = "status running";
+      } else if (activeKey && results[activeKey]) {
+        const r = results[activeKey];
+        statusEl.textContent = `${r.ok ? "OK" : "Failed"} - ${r.message} (${r.finished_at})`;
+        statusEl.className = "status " + (r.ok ? "ok" : "fail");
+      } else {
+        statusEl.textContent = "";
+        statusEl.className = "status";
+      }
+
+      document.querySelectorAll("[data-remove]").forEach(btn => {
+        btn.disabled = running !== null;
+      });
+      const removeStatusEl = document.querySelector(".remove-status");
+      const runningRemove = REMOVE_TARGETS.find(w => running === removeKeyFor(w));
+      if (runningRemove) {
+        removeStatusEl.textContent = "Running...";
+        removeStatusEl.className = "status remove-status running";
+      } else {
+        let activeRemoveKey = null;
+        for (const w of REMOVE_TARGETS) {
+          if (results[removeKeyFor(w)]) activeRemoveKey = removeKeyFor(w);
+        }
+        if (activeRemoveKey) {
+          const r = results[activeRemoveKey];
+          removeStatusEl.textContent = `${r.ok ? "OK" : "Failed"} - ${r.message} (${r.finished_at})`;
+          removeStatusEl.className = "status remove-status " + (r.ok ? "ok" : "fail");
+        } else {
+          removeStatusEl.textContent = "";
+          removeStatusEl.className = "status remove-status";
+        }
+      }
+    }
+
+    async function poll() {
+      const res = await fetch("/api/status");
+      render(await res.json());
+    }
+
+    async function trigger(url) {
+      const res = await fetch(url, { method: "POST" });
+      await poll();
+      const body = await res.json();
+      if (body.started) {
+        // Reload once the run finishes so attachment previews/final PDF reflect the result.
+        const check = setInterval(async () => {
+          const r = await fetch("/api/status");
+          const s = await r.json();
+          if (s.running === null) {
+            clearInterval(check);
+            location.reload();
+          } else {
+            render(s);
+          }
+        }, 1500);
+      }
+    }
+
+    document.querySelectorAll("[data-run]").forEach(btn => {
+      btn.addEventListener("click", () => trigger(`/entries/${encodeURIComponent(ROW_KEY)}/run/${btn.dataset.run}`));
+    });
+    document.querySelector("[data-run-all]").addEventListener("click", () => trigger(`/entries/${encodeURIComponent(ROW_KEY)}/run-all`));
+
+    document.querySelectorAll("[data-remove]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (!confirm(`Delete ${btn.textContent.trim().toLowerCase()} for this entry? This can't be undone directly (though a later run can redownload/reprocess/regenerate them).`)) {
+          return;
+        }
+        trigger(`/entries/${encodeURIComponent(ROW_KEY)}/remove/${btn.dataset.remove}`);
+      });
+    });
+
+    poll();
+  </script>
+</body>
+</html>

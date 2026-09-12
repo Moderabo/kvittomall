@@ -46,6 +46,13 @@ OTHER_COLUMN = _env("SHEET_COLUMN_OTHER", "Övrigt")
 # it's the one that knows which names are actually valid.
 IMAGE_QUALITY = _env("IMAGE_QUALITY", "normal")
 
+# --- Local web UI bind address/port, overridable via .env. Defaults to every
+# interface, not just localhost - the VM/server this typically runs on is rarely the
+# machine you browse from, so binding to 127.0.0.1 alone would make it unreachable
+# from anywhere else on the network.
+WEBUI_HOST = _env("WEBUI_HOST", "0.0.0.0")
+WEBUI_PORT = int(_env("WEBUI_PORT", "5000"))
+
 # --- PDF text content ---
 PDF_TITLE_PREFIX = "Kvittomall - "
 LOGO = "logo.svg"
@@ -114,7 +121,8 @@ def category_for(row: dict) -> str:
     return CATEGORY_MAP.get(value, DEFAULT_CATEGORY)
 
 
-# final/<category>/ always holds only the most recently generated/updated batch, so
-# it's obvious at a glance what's new. Anything superseded by a newer batch is archived
-# under final/<PREVIOUS_DIRNAME>/<category>/ instead of being deleted.
-PREVIOUS_DIRNAME = "previous"
+# final/<category>/ holds every generated PDF not yet reviewed - it's cumulative, not
+# a "latest batch" folder. An entry only leaves it when a human deliberately marks it
+# handled (`kvittomall handled [row_key]`), moving it to final/<HANDLED_DIRNAME>/<category>/
+# instead of being deleted. A later content change moves it back (see db.classify_generated).
+HANDLED_DIRNAME = "handled"

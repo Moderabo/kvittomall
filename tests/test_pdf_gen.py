@@ -210,48 +210,128 @@ def test_generate_one_writes_pdf_and_marks_row_generated(conn, final_dir, sample
     assert db_row["final_pdf_size"] == out_path.stat().st_size
 
 
-def test_sweep_category_moves_matching_rows_to_previous(conn, final_dir):
+def test_toggle_handled_moves_file_and_flips_state(conn, final_dir):
     (final_dir / "privat").mkdir(parents=True)
     (final_dir / "privat" / "row1.pdf").write_bytes(b"pdf-bytes")
     db.upsert_row(conn, "k1", "row1", "Privat utlägg", "h", "l")
     db.mark_generated(conn, "k1", "privat/row1.pdf", 9, "h")
 
-    moved = pdf_gen._sweep_category(conn, "privat")
+    new_state = pdf_gen.toggle_handled(conn, "k1")
 
-    assert moved == 1
+    assert new_state is True
     assert not (final_dir / "privat" / "row1.pdf").exists()
-    assert (final_dir / "previous" / "privat" / "row1.pdf").exists()
-    assert db.get_row(conn, "k1")["final_pdf_path"] == "previous/privat/row1.pdf"
+    assert (final_dir / "handled" / "privat" / "row1.pdf").exists()
+    db_row = db.get_row(conn, "k1")
+    assert db_row["status"] == "generated"  # status is untouched by handling
+    assert db_row["handled"] == 1
+    assert db_row["final_pdf_path"] == "handled/privat/row1.pdf"
 
 
-def test_sweep_category_ignores_other_categories(conn, final_dir):
-    (final_dir / "sektionskort").mkdir(parents=True)
-    (final_dir / "sektionskort" / "row1.pdf").write_bytes(b"pdf-bytes")
-    db.upsert_row(conn, "k1", "row1", "Sektionskort", "h", "l")
-    db.mark_generated(conn, "k1", "sektionskort/row1.pdf", 9, "h")
-
-    moved = pdf_gen._sweep_category(conn, "privat")
-
-    assert moved == 0
-    assert (final_dir / "sektionskort" / "row1.pdf").exists()
-
-
-def test_sweep_category_skips_row_missing_on_disk(conn, final_dir):
-    # No file on disk (e.g. a repair in progress this same run) - must be left alone,
-    # not counted as "moved", per _sweep_category's own docstring.
+def test_toggle_handled_flips_back_to_unhandled(conn, final_dir):
+    (final_dir / "privat").mkdir(parents=True)
+    (final_dir / "privat" / "row1.pdf").write_bytes(b"pdf-bytes")
     db.upsert_row(conn, "k1", "row1", "Privat utlägg", "h", "l")
     db.mark_generated(conn, "k1", "privat/row1.pdf", 9, "h")
 
-    moved = pdf_gen._sweep_category(conn, "privat")
+    pdf_gen.toggle_handled(conn, "k1")  # -> handled
+    new_state = pdf_gen.toggle_handled(conn, "k1")  # -> unhandled again
 
-    assert moved == 0
-    assert db.get_row(conn, "k1")["final_pdf_path"] == "privat/row1.pdf"
+    assert new_state is False
+    assert (final_dir / "privat" / "row1.pdf").exists()
+    assert not (final_dir / "handled" / "privat" / "row1.pdf").exists()
+    db_row = db.get_row(conn, "k1")
+    assert db_row["handled"] == 0
+    assert db_row["final_pdf_path"] == "privat/row1.pdf"
+
+
+def test_toggle_handled_raises_when_never_generated(conn, final_dir):
+    db.upsert_row(conn, "k1", "row1", "Privat utlägg", "h", "l")
+    with pytest.raises(SystemExit):
+        pdf_gen.toggle_handled(conn, "k1")
+
+
+def test_toggle_handled_raises_when_file_missing_on_disk(conn, final_dir):
+    db.upsert_row(conn, "k1", "row1", "Privat utlägg", "h", "l")
+    db.mark_generated(conn, "k1", "privat/row1.pdf", 9, "h")  # no file actually written
+
+    with pytest.raises(SystemExit):
+        pdf_gen.toggle_handled(conn, "k1")
+
+
+def test_mark_all_handled_moves_generated_rows_and_skips_others(conn, final_dir):
+    (final_dir / "privat").mkdir(parents=True)
+    (final_dir / "privat" / "row1.pdf").write_bytes(b"pdf-bytes")
+    db.upsert_row(conn, "k1", "row1", "Privat utlägg", "h1", "l")
+    db.mark_generated(conn, "k1", "privat/row1.pdf", 9, "h1")
+
+    db.upsert_row(conn, "k2", "row2", "Privat utlägg", "h2", "l")  # never generated
+
+    db.upsert_row(conn, "k3", "row3", "Sektionskort", "h3", "l")
+    db.set_handled(conn, "k3", True, "handled/sektionskort/row3.pdf")  # already handled
+
+    handled = pdf_gen.mark_all_handled(conn)
+
+    assert handled == 1
+    assert (final_dir / "handled" / "privat" / "row1.pdf").exists()
+    assert db.get_row(conn, "k1")["handled"] == 1
+    assert db.get_row(conn, "k2")["status"] == "new"  # untouched - never generated
+    assert db.get_row(conn, "k3")["final_pdf_path"] == "handled/sektionskort/row3.pdf"  # untouched
+
+
+def test_mark_all_handled_logs_and_skips_row_missing_on_disk(conn, final_dir, caplog):
+    db.upsert_row(conn, "k1", "row1", "Privat utlägg", "h", "l")
+    db.mark_generated(conn, "k1", "privat/row1.pdf", 9, "h")  # no file actually written
+
+    with caplog.at_level(logging.WARNING, logger=pdf_gen.logger.name):
+        handled = pdf_gen.mark_all_handled(conn)
+
+    assert handled == 0
+    assert db.get_row(conn, "k1")["handled"] == 0  # left alone, not silently marked
+
+
+def test_remove_final_deletes_file_leaves_db_untouched(conn, final_dir):
+    (final_dir / "privat").mkdir(parents=True)
+    (final_dir / "privat" / "row1.pdf").write_bytes(b"pdf-bytes")
+    db.upsert_row(conn, "k1", "row1", "Privat utlägg", "h", "l")
+    db.mark_generated(conn, "k1", "privat/row1.pdf", 9, "h")
+    conn.commit()  # remove_final() opens its own connection - mustn't see an open write lock
+
+    removed = pdf_gen.remove_final("k1")
+
+    assert removed is True
+    assert not (final_dir / "privat" / "row1.pdf").exists()
+    db_row = db.get_row(conn, "k1")
+    assert db_row["status"] == "generated"  # DB is untouched - only the file is gone
+    assert db_row["final_pdf_path"] == "privat/row1.pdf"
+
+
+def test_remove_final_is_a_no_op_when_nothing_to_remove(conn, final_dir):
+    db.upsert_row(conn, "k1", "row1", "Privat utlägg", "h", "l")  # never generated
+    conn.commit()  # remove_final() opens its own connection - mustn't see an open write lock
+    assert pdf_gen.remove_final("k1") is False
+    assert pdf_gen.remove_final("unknown-row") is False
+
+
+def test_remove_final_then_generate_restores_it_in_place(monkeypatch, conn, final_dir):
+    rows = [_row("2026-01-01 10.00.00", "Anna Andersson")]
+    monkeypatch.setattr(pdf_gen, "read_rows", lambda: rows)
+    pdf_gen.run()
+    dest = final_dir / "privat" / "2026-01-01_10.00.00_Anna-Andersson.pdf"
+    original_bytes = dest.read_bytes()
+
+    assert pdf_gen.remove_final("2026-01-01 10.00.00") is True
+    assert not dest.exists()
+
+    pdf_gen.run()  # fail-safe "repair" path, same as any other accidental deletion
+
+    assert dest.exists()
+    assert dest.read_bytes() == original_bytes
 
 
 def _row(timestamp: str, name: str, transaction_type: str = "Privat utlägg", summa: str = "100.00") -> dict:
-    """A minimal row with no receipt attachments - keeps these tests focused on
-    run()'s own planning/sweep/generate orchestration, not attachment readiness
-    (covered separately above).
+    """A minimal row with no receipt attachments - keeps these tests focused on run()'s
+    own planning/generate orchestration, not attachment readiness (covered separately
+    above).
     """
     return {
         "Tidstämpel": timestamp,
@@ -298,10 +378,12 @@ def test_run_is_a_no_op_when_nothing_changed(monkeypatch, conn, final_dir):
     pdf_gen.run()
 
     assert dest.read_bytes() == first_bytes
-    assert not (final_dir / "previous").exists()  # nothing was stale, so nothing got swept
 
 
-def test_run_regenerates_and_sweeps_when_row_content_changes(monkeypatch, conn, final_dir):
+def test_run_regenerates_in_place_without_moving_anything(monkeypatch, conn, final_dir):
+    # No more automatic archiving on regeneration - a changed row is just rewritten
+    # where it already sits; only the explicit `handled` command ever moves a PDF out
+    # of its category folder.
     rows = [_row("2026-01-01 10.00.00", "Anna Andersson", summa="100.00")]
     monkeypatch.setattr(pdf_gen, "read_rows", lambda: rows)
     pdf_gen.run()
@@ -310,8 +392,27 @@ def test_run_regenerates_and_sweeps_when_row_content_changes(monkeypatch, conn, 
     pdf_gen.run()
 
     dest = final_dir / "privat" / "2026-01-01_10.00.00_Anna-Andersson.pdf"
-    assert dest.exists()  # regenerated in the same place
-    assert (final_dir / "previous" / "privat" / "2026-01-01_10.00.00_Anna-Andersson.pdf").exists()
+    assert dest.exists()
+    assert not (final_dir / "handled").exists()
+
+
+def test_run_does_not_move_unrelated_rows_in_same_category_when_one_changes(monkeypatch, conn, final_dir):
+    rows = [
+        _row("2026-01-01 10.00.00", "Anna Andersson", summa="100.00"),
+        _row("2026-01-02 10.00.00", "Bertil Bengtsson", summa="200.00"),
+    ]
+    monkeypatch.setattr(pdf_gen, "read_rows", lambda: rows)
+    pdf_gen.run()
+    dest_b = final_dir / "privat" / "2026-01-02_10.00.00_Bertil-Bengtsson.pdf"
+    first_bytes_b = dest_b.read_bytes()
+
+    rows[0]["Summa"] = "999.00"
+    pdf_gen.run()
+
+    # Bertil's row didn't change and must be left exactly as it was - no more automatic
+    # "sweep the whole category" side effect from Anna's row changing.
+    assert dest_b.read_bytes() == first_bytes_b
+    assert not (final_dir / "handled").exists()
 
 
 def test_run_repairs_missing_file_without_treating_it_as_new(monkeypatch, conn, final_dir):
@@ -325,7 +426,45 @@ def test_run_repairs_missing_file_without_treating_it_as_new(monkeypatch, conn, 
     pdf_gen.run()
 
     assert dest.exists()  # restored to the same place
-    assert not (final_dir / "previous").exists()  # not treated as a new batch
+    assert not (final_dir / "handled").exists()
+
+
+def test_run_regenerates_a_handled_row_back_into_active_folder_when_content_changes(monkeypatch, conn, final_dir):
+    rows = [_row("2026-01-01 10.00.00", "Anna Andersson", summa="100.00")]
+    monkeypatch.setattr(pdf_gen, "read_rows", lambda: rows)
+    pdf_gen.run()
+    row_key = "2026-01-01 10.00.00"
+    pdf_gen.toggle_handled(conn, row_key)
+    conn.commit()  # run() below opens its own connection - mustn't see an open write lock
+    handled_path = final_dir / "handled" / "privat" / "2026-01-01_10.00.00_Anna-Andersson.pdf"
+    assert handled_path.exists()
+
+    rows[0]["Summa"] = "999.00"
+    pdf_gen.run()
+
+    active_path = final_dir / "privat" / "2026-01-01_10.00.00_Anna-Andersson.pdf"
+    assert active_path.exists()  # moved back out of handled/ for re-review
+    assert not handled_path.exists()
+    db_row = db.get_row(conn, row_key)
+    assert db_row["status"] == "generated"
+    assert db_row["handled"] == 0
+
+
+def test_run_only_filters_to_one_row(monkeypatch, conn, final_dir):
+    key1, key2 = "2026-01-01 10.00.00", "2026-01-02 10.00.00"
+    rows = [
+        _row(key1, "Anna Andersson"),
+        _row(key2, "Bertil Bengtsson"),
+    ]
+    monkeypatch.setattr(pdf_gen, "read_rows", lambda: rows)
+
+    pdf_gen.run(only=key1)
+
+    assert (final_dir / "privat" / "2026-01-01_10.00.00_Anna-Andersson.pdf").exists()
+    assert not (final_dir / "privat" / "2026-01-02_10.00.00_Bertil-Bengtsson.pdf").exists()
+    # Both rows are still synced (cheap, no side effects) - only the targeted one generated.
+    statuses = {r["row_key"]: r["status"] for r in db.list_rows(conn)}
+    assert statuses == {key1: "generated", key2: "new"}
 
 
 def test_run_skips_row_missing_identity_without_crashing(monkeypatch, conn, final_dir):

@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>kvittomall</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 1200px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; }
+    .stage { display: flex; align-items: center; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid #e5e5e5; }
+    .stage-name { width: 6rem; font-weight: 600; text-transform: capitalize; }
+    button { padding: 0.4rem 1rem; cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: 0.5; }
+    .status { font-size: 0.9rem; color: #555; }
+    .status.ok { color: #1a7f37; }
+    .status.fail { color: #b3261e; }
+    .status.running { color: #a15c00; }
+    .run-all { margin-top: 1.5rem; padding-top: 1rem; border-top: 2px solid #e5e5e5; display: flex; align-items: center; gap: 1rem; }
+    .danger-zone { border-top-color: #f5c2c7; }
+    button.danger { background: #dc3545; color: #fff; border: 1px solid #b02a37; }
+    button.danger:hover:not(:disabled) { background: #b02a37; }
+
+    .count { color: #777; font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #e5e5e5; font-size: 0.9rem; }
+    th { color: #555; font-weight: 600; }
+    th[data-sort] { cursor: pointer; user-select: none; white-space: nowrap; }
+    th[data-sort]:hover { color: #1a1a1a; }
+    th.sort-asc::after { content: " \25B2"; }
+    th.sort-desc::after { content: " \25BC"; }
+    .filter-row th { padding: 0.3rem 0.6rem; }
+    .filter-row input { width: 100%; box-sizing: border-box; padding: 0.3rem 0.4rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.85rem; }
+    tr:hover td { background: #fafafa; }
+    tr[hidden] { display: none; }
+    a.row-link { color: inherit; text-decoration: none; display: block; }
+    .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 1rem; font-size: 0.8rem; }
+    .badge.valid { background: #e6f4ea; color: #1a7f37; }
+    .badge.error { background: #fbe9e7; color: #b3261e; }
+    .badge.repair { background: #fff4e5; color: #a15c00; }
+    .badge.pending { background: #eef1f5; color: #444; }
+    .badge.not_synced { background: #f0f0f0; color: #777; }
+    .badge.handled { background: #e8eaf6; color: #3949ab; }
+    .empty { color: #777; padding: 1rem 0; }
+  </style>
+</head>
+<body>
+  <h1>kvittomall</h1>
+
+  {% for stage in stages %}
+  <div class="stage" data-stage="{{ stage }}">
+    <span class="stage-name">{{ stage }}</span>
+    <button data-run="{{ stage }}">Run</button>
+    <span class="status"></span>
+  </div>
+  {% endfor %}
+
+  <div class="run-all" data-stage="run">
+    <button data-run-all>Run all</button>
+    <span class="status"></span>
+  </div>
+
+  <div class="run-all" data-stage="handled">
+    <button data-run="handled">Mark all handled</button>
+    <span class="status"></span>
+  </div>
+
+  <div class="run-all danger-zone" data-stage="clean-all">
+    <button class="danger" id="clean-all-button">Clean all</button>
+    <span class="status"></span>
+  </div>
+
+  <h2>Entries</h2>
+
+  {% if entries %}
+  <div class="count" id="filter-count"></div>
+  <div class="table-wrap">
+  <table id="entries-table">
+    <thead>
+      <tr>
+        <th data-sort>Category</th>
+        <th data-sort>Name</th>
+        {% for h in extra_headers %}<th data-sort>{{ h }}</th>{% endfor %}
+        <th data-sort>Attachments</th>
+        <th data-sort>Status</th>
+      </tr>
+      <tr class="filter-row">
+        <th><input type="text" data-filter-index="0"></th>
+        <th><input type="text" data-filter-index="1"></th>
+        {% for h in extra_headers %}<th><input type="text" data-filter-index="{{ loop.index + 1 }}"></th>{% endfor %}
+        <th><input type="text" data-filter-index="{{ 2 + extra_headers | length }}"></th>
+        <th><input type="text" data-filter-index="{{ 3 + extra_headers | length }}"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        {% if e.row_key %}
+        <td><a class="row-link" href="{{ url_for('entry_detail', row_key=e.row_key) }}">{{ e.category }}</a></td>
+        <td><a class="row-link" href="{{ url_for('entry_detail', row_key=e.row_key) }}">{{ e.name or '(no name)' }}</a></td>
+        {% for value in e.extra %}
+        <td><a class="row-link" href="{{ url_for('entry_detail', row_key=e.row_key) }}">{{ value or '-' }}</a></td>
+        {% endfor %}
+        <td><a class="row-link" href="{{ url_for('entry_detail', row_key=e.row_key) }}">
+          {% if e.attachments %}
+            {{ e.attachments | selectattr('downloaded_ok') | list | length }}/{{ e.attachments | length }} dl,
+            {{ e.attachments | selectattr('processed_ok') | list | length }}/{{ e.attachments | length }} proc
+          {% else %}-{% endif %}
+        </a></td>
+        <td><a class="row-link" href="{{ url_for('entry_detail', row_key=e.row_key) }}">
+          <span class="badge {{ e.kind }}">{{ e.state }}</span>
+        </a></td>
+        {% else %}
+        <td colspan="{{ 4 + extra_headers | length }}">{{ e.name or '(missing timestamp - cannot be identified)' }}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="empty">No entries yet - run "fetch" first.</p>
+  {% endif %}
+
+  <script>
+    const STAGES = {{ stages | tojson }};
+
+    function render(state) {
+      const running = state.running;
+      const results = state.results;
+
+      for (const stage of [...STAGES, "run", "handled", "clean-all"]) {
+        const row = document.querySelector(`[data-stage="${stage}"]`);
+        const button = row.querySelector("button");
+        const statusEl = row.querySelector(".status");
+        const isRunning = running === stage;
+
+        button.disabled = running !== null;
+
+        if (isRunning) {
+          statusEl.textContent = "Running...";
+          statusEl.className = "status running";
+        } else if (results[stage]) {
+          const r = results[stage];
+          statusEl.textContent = `${r.ok ? "OK" : "Failed"} - ${r.message} (${r.finished_at})`;
+          statusEl.className = "status " + (r.ok ? "ok" : "fail");
+        } else {
+          statusEl.textContent = "";
+          statusEl.className = "status";
+        }
+      }
+    }
+
+    async function poll() {
+      const res = await fetch("/api/status");
+      render(await res.json());
+    }
+
+    async function trigger(url) {
+      // Poll until the triggered action finishes, then reload - the entries table
+      // below is rendered server-side, so it only picks up new state on a fresh page
+      // load (matching the entry detail page's same pattern for the same reason).
+      const res = await fetch(url, { method: "POST" });
+      await poll();
+      const body = await res.json();
+      if (body.started) {
+        const check = setInterval(async () => {
+          const r = await fetch("/api/status");
+          const s = await r.json();
+          if (s.running === null) {
+            clearInterval(check);
+            location.reload();
+          } else {
+            render(s);
+          }
+        }, 1500);
+      }
+    }
+
+    document.querySelectorAll("[data-run]").forEach(btn => {
+      btn.addEventListener("click", () => trigger(`/run/${btn.dataset.run}`));
+    });
+    document.querySelector("[data-run-all]").addEventListener("click", () => trigger("/run-all"));
+    document.getElementById("clean-all-button").addEventListener("click", () => {
+      if (!confirm(
+        "This permanently deletes the ENTIRE database, every downloaded/processed " +
+        "file, and every generated PDF (handled or not) - literally everything in " +
+        "data/ and final/. This cannot be undone. Are you absolutely sure?"
+      )) {
+        return;
+      }
+      trigger("/clean-all");
+    });
+
+    render({
+      running: {{ running | tojson }},
+      results: {{ results | tojson }},
+    });
+    setInterval(poll, 1500);
+  </script>
+
+  <script>
+    const table = document.getElementById("entries-table");
+    if (table) {
+      const tbody = table.querySelector("tbody");
+      const rows = Array.from(tbody.querySelectorAll("tr"));
+      const headers = Array.from(table.querySelectorAll("thead tr:first-child th[data-sort]"));
+
+      function cellText(row, index) {
+        const cell = row.children[index];
+        return cell ? cell.textContent.trim() : "";
+      }
+
+      // Numeric-aware: sorts "245.50"/"12,5" (Swedish decimal comma) as numbers when
+      // both sides of a comparison parse as one, otherwise falls back to text - so Sum
+      // sorts by amount, not alphabetically, while Name/Status/etc. still sort as text.
+      function compareCells(a, b) {
+        const na = parseFloat(a.replace(",", "."));
+        const nb = parseFloat(b.replace(",", "."));
+        if (!isNaN(na) && !isNaN(nb) && /^-?[\d.,]+/.test(a) && /^-?[\d.,]+/.test(b)) {
+          return na - nb;
+        }
+        return a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+      }
+
+      let sortIndex = null;
+      let sortDir = 1;
+
+      headers.forEach((th, index) => {
+        th.addEventListener("click", () => {
+          sortDir = sortIndex === index ? -sortDir : 1;
+          sortIndex = index;
+          headers.forEach(h => h.classList.remove("sort-asc", "sort-desc"));
+          th.classList.add(sortDir === 1 ? "sort-asc" : "sort-desc");
+
+          rows.sort((r1, r2) => sortDir * compareCells(cellText(r1, index), cellText(r2, index)));
+          rows.forEach(row => tbody.appendChild(row));
+        });
+      });
+
+      // One filter box per column, combined with AND - e.g. Committee="A" plus
+      // Status="handled" only shows rows matching both at once.
+      const filterInputs = Array.from(table.querySelectorAll(".filter-row input[data-filter-index]"));
+      const filterCount = document.getElementById("filter-count");
+
+      function applyFilters() {
+        const active = filterInputs
+          .map(inp => ({ index: parseInt(inp.dataset.filterIndex, 10), q: inp.value.trim().toLowerCase() }))
+          .filter(f => f.q);
+        let visible = 0;
+        rows.forEach(row => {
+          const matches = active.every(f => cellText(row, f.index).toLowerCase().includes(f.q));
+          row.hidden = !matches;
+          if (matches) visible++;
+        });
+        filterCount.textContent = active.length ? `${visible} of ${rows.length} shown` : `${rows.length} entries`;
+      }
+
+      filterInputs.forEach(inp => inp.addEventListener("input", applyFilters));
+      applyFilters();
+    }
+  </script>
+</body>
+</html>

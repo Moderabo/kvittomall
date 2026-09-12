@@ -24,11 +24,10 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 
 from kvittomall import db, google_api
-from kvittomall.config import RECEIPT_LINKS_COLUMN
 from kvittomall.logging_setup import run_timer, setup_logging
 from kvittomall.paths import DOWNLOADS_DIR
 from kvittomall.progress import ProgressBar
-from kvittomall.rowkey import sync_row
+from kvittomall.rowkey import receipt_links, sync_row
 from kvittomall.sheet import read_rows
 
 logger = setup_logging("download")
@@ -194,17 +193,35 @@ def _get_drive_service():
         return None
 
 
-def run() -> None:
-    with run_timer(logger, "download"):
+def run(only: str | None = None) -> None:
+    with run_timer(logger, "download" if only is None else f"download (row {only})"):
         try:
             drive_service = _get_drive_service()
         except SystemExit as e:
             logger.error(f"Download failed before it could start: {e}")
             raise SystemExit(1)
-        _download_all(drive_service)
+        _download_all(drive_service, only)
 
 
-def _download_all(drive_service) -> None:
+def remove_downloads(row_key: str) -> int:
+    """Deletes every downloaded file recorded for this row - a disk-space/cleanup action
+    only, never touching the CSV/database/entries list. The DB record is deliberately
+    left as-is: is_download_valid() already re-verifies the file exists on disk before
+    trusting it, so a later `download` run just sees it's missing and re-fetches it from
+    Drive, exactly like recovering from any other accidental deletion.
+    """
+    removed = 0
+    with db.connect() as conn:
+        for att in db.list_attachments(conn, row_key):
+            path = att["download_path"]
+            if path and os.path.exists(path):
+                os.remove(path)
+                removed += 1
+                logger.info(f"Removed download for {row_key} attachment {att['link_index']}: {path}")
+    return removed
+
+
+def _download_all(drive_service, only: str | None = None) -> None:
     rows = read_rows()
     with db.connect() as conn, ProgressBar(len(rows), "Downloading") as bar:
         for i, row in enumerate(rows):
@@ -213,8 +230,11 @@ def _download_all(drive_service) -> None:
                 logger.warning(f"Row {i} is missing timestamp/name, skipping downloads")
                 bar.update()
                 continue
+            if only is not None and row_key != only:
+                bar.update()
+                continue
 
-            links = [link.strip() for link in row.get(RECEIPT_LINKS_COLUMN, "").split(",") if link.strip()]
+            links = receipt_links(row)
             base = db.get_row(conn, row_key)["base_filename"]
 
             for j, link in enumerate(links):

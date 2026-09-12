@@ -45,6 +45,14 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def receipt_links(row: dict) -> list[str]:
+    """The row's receipt links, parsed from the raw comma-separated column value -
+    shared by every stage/view that needs to know how many attachments a row *should*
+    have (as opposed to how many happen to be in the database already).
+    """
+    return [link.strip() for link in row.get(RECEIPT_LINKS_COLUMN, "").split(",") if link.strip()]
+
+
 def links_hash(row: dict) -> str:
     """Changes only when the receipt links change -> invalidates download/process state."""
     return _hash(row.get(RECEIPT_LINKS_COLUMN, ""))

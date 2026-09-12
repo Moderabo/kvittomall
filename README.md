@@ -13,7 +13,7 @@ Vid `kvittomall run` körs alla fyra stegen även om ett tidigare steg misslycka
 3. **process** - komprimerar bilder adaptivt och sparar dem som JPEG i `data/processed/`; PDF:er kopieras oförändrade.
 4. **generate** - skapar de färdiga kvittomallarna i `final/`, uppdelat i `privat/`, `sektionskort/`, `milersättning/` och `övrigt/` (allt annat) baserat på `Transaktionstyp`.
 
-Varje kategorimapp under `final/` innehåller alltid bara den senast genererade/uppdaterade omgången, så det är enkelt att se vad som är nytt. Så fort en ny omgång skapas arkiveras föregående omgångs filer till `final/previous/<kategori>/` istället för att skrivas över. En körning som inte hittar något nytt rör ingenting.
+Varje kategorimapp under `final/` samlar alla genererade PDF:er som ännu inte är granskade - mappen rensas inte automatiskt bara för att en ny PDF tillkommer. När du är klar med ett utlägg kör du `kvittomall handled` (se nedan), som flyttar filen till `final/handled/<kategori>/`. Ändras kalkylbladsraden igen efter det plockas den automatiskt tillbaka till den aktiva kategorimappen nästa gång `generate` körs.
 
 Allt under `data/` (nedladdningar, bearbetade filer, CSV:n, databasen, lock-filen) är arbetsdata som verktyget själv äger och kan bygga om från grunden - `final/` och `logs/` ligger däremot direkt i rotmappen, eftersom de är det du faktiskt vill åt: de färdiga rapporterna respektive loggarna.
 
@@ -128,7 +128,25 @@ python -m kvittomall process    # 3. Bearbeta filer
 python -m kvittomall generate   # 4. Skapa PDF:er
 ```
 
-Se aktuell status för alla rader - hämtat/nedladdat/bearbetat/genererat, var varje PDF ligger, och eventuella fel:
+Vart och ett av `download`, `process`, `generate` och `run` kan även begränsas till en enda rad genom att ange dess radnyckel (tidstämpeln, samma som visas i `status` eller webb-UI:ts lista) som extra argument, t.ex. `python -m kvittomall generate "2026-01-01 10.00.00"`.
+
+När ett utlägg är granskat och klart markerar du det som hanterat, vilket flyttar dess PDF från kategorimappen till `final/handled/<kategori>/`. Kör kommandot igen på samma rad för att ångra - det växlar (toggle) mellan hanterat och ohanterat:
+
+```sh
+python -m kvittomall handled "2026-01-01 10.00.00"   # markerar (eller avmarkerar) en specifik rad
+python -m kvittomall handled                          # markerar alla ännu ej hanterade rader (växlar inte tillbaka)
+```
+
+Vill du ta bort en rads filer från disk utan att röra CSV:n, databasen eller listan över rader - t.ex. för att frigöra utrymme eller tvinga fram en helt ny nedladdning/bearbetning/generering - använd `remove`. Till skillnad från övriga kommandon ovan krävs alltid en radnyckel (ingen "ta bort allt"-variant):
+
+```sh
+python -m kvittomall remove "2026-01-01 10.00.00"                    # tar bort alla filer för raden
+python -m kvittomall remove "2026-01-01 10.00.00" --only downloads   # bara de nedladdade originalen
+python -m kvittomall remove "2026-01-01 10.00.00" --only processed   # bara de bearbetade bilderna
+python -m kvittomall remove "2026-01-01 10.00.00" --only final       # bara den färdiga PDF:en
+```
+
+Se aktuell status för alla rader - hämtat/nedladdat/bearbetat/genererat/hanterat, var varje PDF ligger, och eventuella fel:
 
 ```sh
 python -m kvittomall status
@@ -136,10 +154,10 @@ python -m kvittomall status
 
 De färdiga rapporterna hamnar i:
 
-- `final/privat/`, `final/sektionskort/`, `final/milersättning/`, `final/övrigt/` - senaste omgången, det som är nytt.
-- `final/previous/privat/`, `final/previous/sektionskort/`, `final/previous/milersättning/`, `final/previous/övrigt/` - allt äldre.
+- `final/privat/`, `final/sektionskort/`, `final/milersättning/`, `final/övrigt/` - genererat men inte markerat hanterat än.
+- `final/handled/privat/`, `final/handled/sektionskort/`, `final/handled/milersättning/`, `final/handled/övrigt/` - markerat hanterat med `kvittomall handled`.
 
-Om en fil tas bort av misstag men innehållet på kalkylbladet inte ändrats, återskapas den vid nästa körning på exakt samma plats den låg på (kategorimappen eller `previous/`) - det räknas inte som nytt och flyttar inget annat.
+Om en fil tas bort (av misstag, eller med `remove`) men innehållet på kalkylbladet inte ändrats, återskapas den vid nästa körning på exakt samma plats den låg på (kategorimappen eller `handled/`) - det räknas inte som nytt och flyttar inget annat.
 
 ## Utveckling
 
