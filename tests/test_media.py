@@ -3,7 +3,8 @@ import random
 import pytest
 from PIL import Image
 
-from kvittomall import media
+from kvittomall import db, media
+from kvittomall.rowkey import base_filename
 
 
 def test_get_quality_preset_default(monkeypatch):
@@ -78,3 +79,55 @@ def test_encode_adaptive_flat_image_is_tiny_regardless_of_preset():
         # A flat white image should never come close to any preset's ceiling.
         if preset.hard_ceiling is not None:
             assert len(data) < preset.hard_ceiling
+
+
+def test_process_all_only_filters_to_one_row(conn, tmp_path, monkeypatch):
+    monkeypatch.setattr(media, "PROCESSED_DIR", str(tmp_path / "processed"))
+    (tmp_path / "processed").mkdir()
+
+    rows = [
+        {"Tidstämpel": "2026-01-01 10.00.00", "Namn": "Anna Andersson"},
+        {"Tidstämpel": "2026-01-02 10.00.00", "Namn": "Bertil Bengtsson"},
+    ]
+    monkeypatch.setattr(media, "read_rows", lambda: rows)
+    key1, key2 = rows[0]["Tidstämpel"], rows[1]["Tidstämpel"]
+    base1, base2 = base_filename(rows[0]), base_filename(rows[1])
+
+    src1, src2 = tmp_path / "src1.jpg", tmp_path / "src2.jpg"
+    Image.new("RGB", (100, 100), (255, 0, 0)).save(src1, "JPEG")
+    Image.new("RGB", (100, 100), (0, 255, 0)).save(src2, "JPEG")
+
+    db.upsert_row(conn, key1, base1, "Privat utlägg", "h1", "l1")
+    db.upsert_attachment(conn, key1, 0, "fileid1")
+    db.mark_download_ok(conn, key1, 0, str(src1), src1.stat().st_size)
+
+    db.upsert_row(conn, key2, base2, "Privat utlägg", "h2", "l2")
+    db.upsert_attachment(conn, key2, 0, "fileid2")
+    db.mark_download_ok(conn, key2, 0, str(src2), src2.stat().st_size)
+    conn.commit()  # _process_all opens its own connection - must not see an open write lock
+
+    media._process_all(media.QUALITY_PRESETS["normal"], only=key1)
+
+    assert db.is_process_valid(db.get_attachment(conn, key1, 0))[0] is True
+    assert db.is_process_valid(db.get_attachment(conn, key2, 0))[0] is False
+
+
+def test_remove_processed_deletes_files_and_leaves_db_untouched(conn, tmp_path):
+    path = tmp_path / "row1_file0.jpg"
+    path.write_bytes(b"fake-processed-bytes")
+    db.upsert_row(conn, "k1", "row1", "Privat utlägg", "h", "l")
+    db.upsert_attachment(conn, "k1", 0, "fileid")
+    db.mark_process_ok(conn, "k1", 0, str(path), path.stat().st_size)
+    conn.commit()  # remove_processed() opens its own connection - mustn't see an open write lock
+
+    removed = media.remove_processed("k1")
+
+    assert removed == 1
+    assert not path.exists()
+    att = db.get_attachment(conn, "k1", 0)
+    assert att["process_status"] == "ok"  # DB is untouched - only the file is gone
+    assert db.is_process_valid(att) == (False, f"recorded processed file is missing on disk: {path}")
+
+
+def test_remove_processed_is_a_no_op_when_nothing_to_remove(conn):
+    assert media.remove_processed("unknown-row") == 0

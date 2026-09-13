@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS rows (
     final_pdf_content_hash TEXT,
     generated_at            TEXT,
     status                  TEXT NOT NULL DEFAULT 'new',
+    handled                 INTEGER NOT NULL DEFAULT 0,
     last_error              TEXT,
     updated_at               TEXT NOT NULL
 );
@@ -46,6 +47,19 @@ CREATE TABLE IF NOT EXISTS attachments (
 """
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """One-off patches for databases created before a column existed - CREATE TABLE IF
+    NOT EXISTS above doesn't retroactively add columns to a table that already exists.
+    """
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(rows)")}
+    if "handled" not in columns:
+        conn.execute("ALTER TABLE rows ADD COLUMN handled INTEGER NOT NULL DEFAULT 0")
+    # Rows created while "handled" was briefly a status value (rather than this column)
+    # get migrated forward - a no-op update on any DB that never had that value.
+    conn.execute("UPDATE rows SET status = 'generated', handled = 1 WHERE status = 'handled'")
+    conn.commit()
+
+
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(DB_PATH, timeout=30)
@@ -53,6 +67,7 @@ def connect() -> Iterator[sqlite3.Connection]:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     try:
         yield conn
         conn.commit()
@@ -121,21 +136,26 @@ def rename_base_filename(conn: sqlite3.Connection, row_key: str, old_base: str, 
 
 
 def mark_generated(conn: sqlite3.Connection, row_key: str, final_pdf_path: str,
-                    final_pdf_size: int, content_hash: str) -> None:
+                    final_pdf_size: int, content_hash: str, handled: bool = False) -> None:
+    """`handled` is set explicitly (never left as whatever it was before) so a
+    regeneration always leaves the row in a state that matches where its file actually
+    ended up - pdf_gen.run() passes the row's *current* handled value through for a
+    repair (nothing conceptually changed) and False for anything else (new or
+    content-changed output needs fresh review, and belongs in the active folder).
+    """
     conn.execute(
         """
         UPDATE rows SET status = 'generated', final_pdf_path = ?, final_pdf_size = ?,
-            final_pdf_content_hash = ?, generated_at = ?, last_error = NULL, updated_at = ?
+            final_pdf_content_hash = ?, handled = ?, generated_at = ?, last_error = NULL, updated_at = ?
         WHERE row_key = ?
         """,
-        (final_pdf_path, final_pdf_size, content_hash, _now(), _now(), row_key),
+        (final_pdf_path, final_pdf_size, content_hash, 1 if handled else 0, _now(), _now(), row_key),
     )
 
 
 def set_final_pdf_path(conn: sqlite3.Connection, row_key: str, final_pdf_path: str) -> None:
-    """Updates just the recorded location of an already-generated PDF - used when
-    archiving it from its category folder into previous/<category>/ once a newer
-    batch has taken its place.
+    """Updates just the recorded location of an already-generated PDF, without touching
+    its status - used for repairs/relocations that aren't a review-state change.
     """
     conn.execute(
         "UPDATE rows SET final_pdf_path = ?, updated_at = ? WHERE row_key = ?",
@@ -143,12 +163,29 @@ def set_final_pdf_path(conn: sqlite3.Connection, row_key: str, final_pdf_path: s
     )
 
 
+def set_handled(conn: sqlite3.Connection, row_key: str, handled: bool, final_pdf_path: str) -> None:
+    """Flips whether a human has reviewed this row's PDF, independently of `status`
+    (which stays "generated" throughout) - `handled` is a separate axis, not a
+    generation outcome. Always paired with relocating the file (final_pdf_path is
+    required, not optional), since toggling this always means moving it between
+    final/<category>/ and final/<HANDLED_DIRNAME>/<category>/.
+    """
+    conn.execute(
+        "UPDATE rows SET handled = ?, final_pdf_path = ?, updated_at = ? WHERE row_key = ?",
+        (1 if handled else 0, final_pdf_path, _now(), row_key),
+    )
+
+
 def classify_generated(row: Optional[sqlite3.Row], current_content_hash: str, final_dir: str) -> tuple[str, str]:
     """Fail-safe classification of a row's generated-PDF status, never trusting the
     database alone:
-      - "valid": nothing to do, matches disk and current row content.
+      - "valid": nothing to do, matches disk and current row content (whether it's still
+        sitting in its category folder or has since been marked handled).
       - "stale": never generated, or the row's content changed since it was - this is
-        genuinely new/updated output and belongs in the "new" category folder.
+        genuinely new/updated output and belongs in the (active) category folder. A row
+        that was handled but whose content has since changed also lands here, which is
+        what moves it back out of final/<HANDLED_DIRNAME>/ for re-review (see
+        pdf_gen.run(), which resets `handled` to False for this case).
       - "repair": content is unchanged but the recorded file is missing or corrupt on
         disk - this should be restored to wherever it already was, not treated as new.
     """

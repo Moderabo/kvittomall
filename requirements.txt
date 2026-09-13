@@ -8,3 +8,4 @@ pillow_heif==1.1.1
 reportlab==4.4.5
 svglib==2.1.0
 pypdf==6.15.0
+Flask==3.1.3

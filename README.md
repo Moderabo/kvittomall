@@ -13,7 +13,7 @@ Vid `kvittomall run` körs alla fyra stegen även om ett tidigare steg misslycka
 3. **process** - komprimerar bilder adaptivt och sparar dem som JPEG i `data/processed/`; PDF:er kopieras oförändrade.
 4. **generate** - skapar de färdiga kvittomallarna i `final/`, uppdelat i `privat/`, `sektionskort/`, `milersättning/` och `övrigt/` (allt annat) baserat på `Transaktionstyp`.
 
-Varje kategorimapp under `final/` innehåller alltid bara den senast genererade/uppdaterade omgången, så det är enkelt att se vad som är nytt. Så fort en ny omgång skapas arkiveras föregående omgångs filer till `final/previous/<kategori>/` istället för att skrivas över. En körning som inte hittar något nytt rör ingenting.
+Varje kategorimapp under `final/` samlar alla genererade PDF:er som ännu inte är granskade - mappen rensas inte automatiskt bara för att en ny PDF tillkommer. När du är klar med ett utlägg kör du `kvittomall handled` (se nedan), som flyttar filen till `final/handled/<kategori>/`. Ändras kalkylbladsraden igen efter det plockas den automatiskt tillbaka till den aktiva kategorimappen nästa gång `generate` körs.
 
 Allt under `data/` (nedladdningar, bearbetade filer, CSV:n, databasen, lock-filen) är arbetsdata som verktyget själv äger och kan bygga om från grunden - `final/` och `logs/` ligger däremot direkt i rotmappen, eftersom de är det du faktiskt vill åt: de färdiga rapporterna respektive loggarna.
 
@@ -45,6 +45,27 @@ pip install -r requirements.txt
 
 `requirements.txt` har fasta versionsnummer för att alla ska köra exakt samma, testade paket.
 
+### Alternativ: Docker
+
+Slipper man installera Python/`libmagic` lokalt genom att köra allt i en container istället - `Dockerfile`/`docker-compose.yml` i repot bygger en image med allt förinstallerat.
+
+```sh
+git clone https://github.com/Moderabo/kvittomall.git
+cd kvittomall
+
+cp .env.example .env               # fyll i SHEET_ID/SHEET_GID som vanligt, se Konfiguration nedan
+mkdir -p secrets                   # lägg din service account-nyckel här, sätt sedan
+                                    # GOOGLE_SERVICE_ACCOUNT_FILE=/app/secrets/<filnamn>.json i .env
+
+docker compose up -d --build
+```
+
+Webbgränssnittet finns sedan på `http://localhost:5000` (eller den port du satt `WEBUI_PORT` till i `.env` - `docker-compose.yml` läser samma fil både för att skicka in miljövariabler i containern och för att avgöra vilken värdport som mappas). Ett enskilt kommando istället för webbgränssnittet körs som `docker compose run --rm kvittomall fetch` (byt `fetch` mot vilket kommando som helst, t.ex. `status` eller `run`).
+
+`docker-compose.yml` binder `data/`, `final/`, `logs/`, `secrets/` (skrivskyddad) samt hela mappen `config/` (där `/config`-sidans sparade PDF-layout/kolumnmappning hamnar, se `paths.py`) till motsvarande sökvägar i containern, så inget av det här försvinner mellan omstarter. `config/` binds som en hel mapp och inte som enskilda filer, av en konkret anledning: att bindmounta en enskild fil direkt hade fått varje sparning från webbgränssnittet att krascha (appen skriver dessa filer atomiskt via en temp-fil som sedan byter namn till den riktiga, och kärnan vägrar byta namn rakt över en aktiv bindmount-punkt) - verifierat, inte antaget. Med hela mappen bunden fungerar det direkt utan några förberedande steg.
+
+Containern kör som root - en medveten avvägning för enkelhetens skull (samma sorts avvägning som webbgränssnittets avsaknad av inloggning, se Webbgränssnitt nedan), men det betyder att filer som skapas under `data/`/`final/`/`logs/` på värdmaskinen ägs av root, inte din vanliga användare - `sudo` kan behövas för att titta i eller ta bort dem direkt från värden, om du någon gång behöver det.
+
 ## Konfiguration
 
 1. **`.env`-fil** i projektets rotmapp, med Google Sheet-uppgifterna. [.env.example](.env.example) listar alla tillgängliga variabler (med sina standardvärden utkommenterade) och kan användas som utgångspunkt - kopiera den till `.env` och fyll i det som behövs:
@@ -58,12 +79,16 @@ pip install -r requirements.txt
     - **PNG/JPG fungerar också** och väljs automatiskt om `LOGO` inte slutar på `.svg`. Använd då en tillräckligt hög upplösning för att inte bli suddig i utskrift - men räkna med betydligt större PDF-filer än med SVG.
     - **För att byta logga**: lägg filen i rotmappen och ändra `LOGO = "..."` i `config.py` till dess filnamn.
 
-3. **Kvittomallens innehåll**: vilka fält som visas på försättsbladet styrs av `PDF_SECTIONS` i [kvittomall/config.py](kvittomall/config.py) - varje etikett mappas där till en kolumn i kalkylbladet.
+3. **Kvittomallens innehåll**: vilka fält som visas på försättsbladet, i vilken ordning, och vilken kalkylbladskolumn varje etikett hämtar sitt värde från, går numera att ändra utan att röra kod - se "Redigera kvittomallens innehåll" under Webbgränssnitt nedan. `default_pdf_sections()` i [kvittomall/config.py](kvittomall/config.py) är fortfarande standardlayouten en ny installation startar med.
 
-4. **Kolumnnamn**: varje kolumnnamn verktyget letar efter (t.ex. `Tidstämpel`, `Namn`, `Summa`, `Körda mil`, `Kontonummer`, ...) är en egen namngiven konstant i `config.py`, med exakt sheet-kolumnens text som standardvärde. Om ett annat Google Form har en annan formulering på en fråga, sätt motsvarande `SHEET_COLUMN_*`-variabel i `.env` istället för att ändra i koden, t.ex.:
-    ```
-    SHEET_COLUMN_MIL="Antal mil"
-    ```
+4. **Kolumnnamn**: varje kolumnnamn verktyget letar efter (t.ex. `Tidstämpel`, `Namn`, `Summa`, `Körda mil`, `Kontonummer`, ...) är en egen namngiven konstant i `config.py`, med exakt sheet-kolumnens text som standardvärde. Om ett annat Google Form har en annan formulering på en fråga finns nu tre sätt att rätta det, i denna prioritetsordning:
+    1. **Webbgränssnittets kolumnmappning**, på "Configuration"-sidan (se "Rätta kolumnnamn" under Webbgränssnitt nedan) - enklast, och den enda som visar ett exempelvärde från kalkylbladet så man kan se att mappningen faktiskt är rätt innan den sparas.
+    2. **`SHEET_COLUMN_*`-variabel i `.env`**, t.ex.:
+        ```
+        SHEET_COLUMN_MIL="Antal mil"
+        ```
+    3. **Standardvärdet i koden** (`config.py`), om ingen av ovanstående är satt.
+
     Se toppen av `config.py` för hela listan av `SHEET_COLUMN_*`-variabler och vilken standardtext de motsvarar.
 
 5. **Bildkvalitet vid komprimering**: hur hårt uppladdade kvittobilder komprimeras innan de läggs in i PDF:en styrs av `IMAGE_QUALITY` - standardvärdet (`"normal"`) sätts i `config.py`, precis som kolumnnamnen ovan, och kan valfritt ändras direkt där eller överstyras per miljö via `.env`. Målet är alltid *läsbart*, aldrig *snyggt*. Fem lägen, från högst till lägst kvalitet:
@@ -128,7 +153,25 @@ python -m kvittomall process    # 3. Bearbeta filer
 python -m kvittomall generate   # 4. Skapa PDF:er
 ```
 
-Se aktuell status för alla rader - hämtat/nedladdat/bearbetat/genererat, var varje PDF ligger, och eventuella fel:
+Vart och ett av `download`, `process`, `generate` och `run` kan även begränsas till en enda rad genom att ange dess radnyckel (tidstämpeln, samma som visas i `status` eller webb-UI:ts lista) som extra argument, t.ex. `python -m kvittomall generate "2026-01-01 10.00.00"`.
+
+När ett utlägg är granskat och klart markerar du det som hanterat, vilket flyttar dess PDF från kategorimappen till `final/handled/<kategori>/`. Kör kommandot igen på samma rad för att ångra - det växlar (toggle) mellan hanterat och ohanterat:
+
+```sh
+python -m kvittomall handled "2026-01-01 10.00.00"   # markerar (eller avmarkerar) en specifik rad
+python -m kvittomall handled                          # markerar alla ännu ej hanterade rader (växlar inte tillbaka)
+```
+
+Vill du ta bort en rads filer från disk utan att röra CSV:n, databasen eller listan över rader - t.ex. för att frigöra utrymme eller tvinga fram en helt ny nedladdning/bearbetning/generering - använd `remove`. Till skillnad från övriga kommandon ovan krävs alltid en radnyckel (ingen "ta bort allt"-variant):
+
+```sh
+python -m kvittomall remove "2026-01-01 10.00.00"                    # tar bort alla filer för raden
+python -m kvittomall remove "2026-01-01 10.00.00" --only downloads   # bara de nedladdade originalen
+python -m kvittomall remove "2026-01-01 10.00.00" --only processed   # bara de bearbetade bilderna
+python -m kvittomall remove "2026-01-01 10.00.00" --only final       # bara den färdiga PDF:en
+```
+
+Se aktuell status för alla rader - hämtat/nedladdat/bearbetat/genererat/hanterat, var varje PDF ligger, och eventuella fel:
 
 ```sh
 python -m kvittomall status
@@ -136,10 +179,54 @@ python -m kvittomall status
 
 De färdiga rapporterna hamnar i:
 
-- `final/privat/`, `final/sektionskort/`, `final/milersättning/`, `final/övrigt/` - senaste omgången, det som är nytt.
-- `final/previous/privat/`, `final/previous/sektionskort/`, `final/previous/milersättning/`, `final/previous/övrigt/` - allt äldre.
+- `final/privat/`, `final/sektionskort/`, `final/milersättning/`, `final/övrigt/` - genererat men inte markerat hanterat än.
+- `final/handled/privat/`, `final/handled/sektionskort/`, `final/handled/milersättning/`, `final/handled/övrigt/` - markerat hanterat med `kvittomall handled`.
 
-Om en fil tas bort av misstag men innehållet på kalkylbladet inte ändrats, återskapas den vid nästa körning på exakt samma plats den låg på (kategorimappen eller `previous/`) - det räknas inte som nytt och flyttar inget annat.
+Om en fil tas bort (av misstag, eller med `remove`) men innehållet på kalkylbladet inte ändrats, återskapas den vid nästa körning på exakt samma plats den låg på (kategorimappen eller `handled/`) - det räknas inte som nytt och flyttar inget annat.
+
+### Webbgränssnitt
+
+Som ett alternativ till kommandona ovan finns en lokal webbsida med samma funktioner:
+
+```sh
+python -m kvittomall webui
+```
+
+Öppna sedan `http://127.0.0.1:5000` i webbläsaren. Verktyget lyssnar som standard bara på den egna maskinen (`127.0.0.1`) - i linje med att detta är tänkt som ett lokalt verktyg man startar, använder och stänger ner igen, inte en server som ska stå exponerad. Körs verktyget på en server/VM och ska nås från en annan dator (t.ex. över nätverket eller via SSH till maskinen), sätt `WEBUI_HOST="0.0.0.0"` i `.env` för att lyssna på alla nätverksgränssnitt istället - då nås det via `http://<serverns-ip>:5000`. Adress och port kan ändras via `WEBUI_HOST`/`WEBUI_PORT` i `.env`, se [.env.example](.env.example).
+
+Instrumentpanelen har samma knappar som kommandona ovan (fetch/download/process/generate/run/markera hanterat), och en sorterbar, filtrerbar lista över alla rader direkt under knapparna - klicka på kolumnrubrikerna för att sortera, eller skriv i filterfälten under varje rubrik för att bara visa matchande rader (flera filter kombineras - t.ex. ett utskott och status "handled" samtidigt). Klicka på en rad för att se dess kvitton, bearbetade bilder, färdiga PDF och alla andra ifyllda fält från kalkylbladet, samt köra/ta bort filer för/markera hanterat på just den raden.
+
+**Ingen inloggning krävs** - med standardinställningen (`127.0.0.1`) spelar det mindre roll, eftersom bara den egna maskinen kan nå adressen. Men om `WEBUI_HOST` vidgas till `0.0.0.0` kan vem som helst som når adressen, t.ex. alla på samma nätverk, trigga körningar och ta bort filer - lämpligt på ett förtroendefullt hemma-/kontorsnätverk, men exponera aldrig porten mot internet utan att lägga till någon form av autentisering först.
+
+Den röda **"Rensa allt"**-knappen längst ner återställer `data/` och `final/` helt - databasen, alla nedladdade/bearbetade filer och alla genererade PDF:er (hanterade eller ej) raderas permanent, och samma tomma mappstruktur som vid en helt ny installation skapas igen. `logs/` rörs inte. Detta går inte att ångra, och knappen ber alltid om bekräftelse innan den kör. Motsvarande kommando finns inte i terminalen - det är medvetet bara tillgängligt via webbgränssnittet.
+
+#### Redigera kvittomallens innehåll
+
+Länken **"PDF layout"** på instrumentpanelen öppnar sidan **"Configuration"** (`/config`), som PDF-layouten och kolumnmappningen delar - de är två vyer av samma sak (vilken kolumn ger vilken information), så att fixa en mappning i den ena hänger oftast ihop med den andra. Överst i PDF-layout-delen finns en kort förklaring av vad varje kontroll gör:
+
+- **Textrutan** - etiketten som skrivs ut på PDF:en direkt före värdet (t.ex. "Datum:").
+- **Kolumn-rullistan** - vilken uppgift från kalkylbladet som fyller i värdet.
+- **Format-rullistan** - en suffix som läggs till efter värdet: `kr` för ett belopp, `mil` för en sträcka, eller `None` för vanlig text utan suffix.
+
+Försättsbladets fält kan redigeras utan att röra kod: byta vilken kolumn en etikett hämtar sitt värde från, ändra etikettens text, lägga till eller ta bort fält och rader/sektioner, samt ändra ordningen (pilarna flyttar ett fält upp/ner eller till en annan sektion). Ändringen börjar gälla direkt vid nästa `generate` - både från webbgränssnittet och terminalen, ingen omstart krävs.
+
+Varje fälts kolumn-rullista visar bara de kolumner verktyget faktiskt känner till med namn - en per inställning i kolumnmappningen längre ner på samma sida (t.ex. "Sum: Summa") - inte vilken kalkylbladskolumn som helst. En kolumn som bara finns med av submittern egen anledning (utan någon egen namngiven inställning, t.ex. en egen bekräftelseruta) går alltså inte längre att välja här; ge den ett namn i kolumnmappningen först om den ska synas på PDF:en.
+
+Tidstämpeln, vilken kolumn kvittolänkarna ligger i, och vilken kolumn styr kategorimappen kan **inte** väljas här - de avgör radens identitet, vilka bilagor som hittas, och vilken `final/`-mapp PDF:en hamnar i, inte bara vad som visas på sidan. De ändras i kolumnmappningen istället, se nästa avsnitt.
+
+Om ett fälts val är markerat "not found in last fetch" beror det på att den riktiga kolumnrubriken i kalkylbladet inte matchar det som är konfigurerat - rätta det i kolumnmappningen, inte här.
+
+Ett fält som pekar på en tom kolumn för en viss rad hoppas alltid över på just den PDF:en - alla fält behöver inte finnas ifyllda på varje rad. Om en kalkylbladskolumn däremot har ett värde men inte är kopplad till något fält alls, visas en liten ⚠-ikon direkt bredvid just det fältet på radens sida (håll muspekaren över den för en förklaring), samt en rad i loggen vid `generate` - inte ett fel, bara en påminnelse om att informationen inte kommer med på PDF:en. Varningen är per rad: en tom `Körda mil` på ett vanligt utlägg (inte reseersättning) varnar aldrig, eftersom det är helt normalt att den kolumnen är tom då.
+
+#### Rätta kolumnnamn
+
+Kolumnmappningen, längre ner på samma **"Configuration"**-sida, visar, för varje sak verktyget behöver från kalkylbladet (tidstämpel, namn, kvittolänkar, transaktionstyp, summa, datum, ...), vilken kolumnrubrik den för närvarande är kopplad till - och en rullista med de kolumnrubriker som faktiskt finns i det senast hämtade kalkylbladet att välja bland istället. Första valet i varje rullista är alltid **"(Default)"** - det lämnar inställningen orörd (den fortsätter styras av `.env` eller det inbyggda standardvärdet) istället för att peka på en specifik kolumn, vilket är rätt val för en kolumn som helt enkelt inte finns i just detta kalkylblad (t.ex. körda mil för ett utskott som aldrig ger reseersättning). Ett exempelvärde från första hämtade raden visas bredvid varje val, så man kan se att mappningen faktiskt stämmer innan den sparas - detta går inte att avgöra automatiskt, så det är upp till en själv att kontrollera.
+
+Tidstämpel, kvittolänkar och transaktionstyp visas i en egen sektion med en tydlig varning: ändras någon av dem efter att rader redan finns i systemet hittas inte de gamla raderna längre under sin nya identitet vid nästa `fetch` - redan nedladdade/bearbetade filer och PDF:er raderas inte, men blir övergivna (inte längre kopplade till något) tills de bearbetas om under den nya mappningen. Samma risk finns redan idag vid manuell redigering av `.env` - varningen är ny, risken är det inte.
+
+Ändringar börjar gälla direkt, precis som PDF-layouten ovan - ingen omstart av `kvittomall webui` eller terminalkommandona krävs.
+
+Om PDF-layouten redan har sparats en gång (även bara för att ändra ordningen på fälten) har varje fält frusits till den kolumn det då pekade på - det är inte längre kopplat live till t.ex. `DATUM`-inställningen. Att rätta en felaktig mappning här flyttar därför automatiskt med sig alla redan sparade fält som pekade på den gamla kolumnen, så en tidigare sparad layout inte fortsätter peka på fel kolumn i tysthet. Ett fält som pekar på en helt egen, fritt vald kolumn (som inte motsvarar någon av inställningarna ovan) påverkas aldrig av detta.
 
 ## Utveckling
 

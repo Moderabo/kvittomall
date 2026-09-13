@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>kvittomall - configuration</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; margin-bottom: 0.2rem; }
+    h2 { font-size: 1.2rem; margin-top: 0; }
+    h3 { font-size: 1rem; color: #333; margin-top: 2rem; }
+    nav { margin-bottom: 1rem; }
+    nav a { color: #555; text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
+    .page-section { margin-bottom: 3rem; padding-top: 0.5rem; }
+    .page-section + .page-section { border-top: 1px solid #e5e5e5; }
+    .hint { color: #555; font-size: 0.9rem; margin-bottom: 1rem; }
+    .warning-banner { background: #fff4e5; border: 1px solid #ffddb3; color: #a15c00; border-radius: 6px; padding: 0.6rem 0.9rem; font-size: 0.9rem; margin-bottom: 1rem; }
+    .section { border: 1px solid #e5e5e5; border-radius: 6px; padding: 0.8rem 1rem; margin-bottom: 1rem; }
+    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .section-header .controls { display: flex; gap: 0.3rem; align-items: center; }
+
+    /* Field rows are a fixed grid (one extra column when there's a "move to section"
+       choice, i.e. when more than one section exists) so every row's controls line up
+       under each other regardless of which per-row buttons happen to be enabled - see
+       .arrow-btn below for why a missing up/down arrow no longer shifts anything. */
+    .field-row, .field-grid-header {
+      display: grid;
+      grid-template-columns: 1fr 15rem 6rem 2.2rem 2.2rem 2.4rem;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    .field-row.with-section-select, .field-grid-header.with-section-select {
+      grid-template-columns: 1fr 15rem 6rem 2.2rem 2.2rem 9rem 2.4rem;
+    }
+    .field-grid-header {
+      font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.03em;
+      padding-bottom: 0.35rem; border-bottom: 1px solid #e5e5e5; margin-bottom: 0.2rem;
+    }
+    .field-row { padding: 0.4rem 0; border-bottom: 1px solid #f5f5f5; }
+    .field-row:last-of-type { border-bottom: none; }
+    .field-row input[type=text] { width: 100%; box-sizing: border-box; padding: 0.35rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
+    .field-row select { width: 100%; box-sizing: border-box; padding: 0.35rem 0.4rem; border: 1px solid #ccc; border-radius: 4px; }
+
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; table-layout: fixed; }
+    th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid #e5e5e5; font-size: 0.9rem; word-break: break-word; }
+    th { color: #555; font-weight: 600; }
+    table select { width: 100%; box-sizing: border-box; padding: 0.3rem 0.4rem; border: 1px solid #ccc; border-radius: 4px; }
+    .warn { color: #a15c00; font-size: 0.85rem; }
+    .default-tag { color: #888; font-style: italic; font-size: 0.85rem; }
+    .preview { color: #555; font-style: italic; }
+
+    button { padding: 0.4rem 1rem; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+    button.small { padding: 0.2rem 0.6rem; font-size: 0.85rem; }
+    /* Square icon buttons (move up/down, delete) share one footprint so a row/header
+       never grows or shrinks depending on which of them happen to be present. */
+    .arrow-btn, .icon-btn { width: 2.2rem; height: 2.2rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 0.95rem; line-height: 1; }
+    .arrow-btn[disabled] { color: #ccc; background: #f7f7f7; border-color: #eee; cursor: default; }
+    .icon-btn.danger { color: #b3261e; border-color: #f3c6c1; background: #fff5f4; }
+    .icon-btn.danger:hover { background: #fde8e6; }
+    .top-actions { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
+    .status { font-size: 0.9rem; color: #555; }
+    .status.ok { color: #1a7f37; }
+    .status.fail { color: #b3261e; }
+    .empty-hint { color: #999; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <nav><a href="{{ url_for('index') }}">&larr; Dashboard</a></nav>
+  <h1>Configuration</h1>
+
+  <section class="page-section" id="pdf-layout">
+    <h2>PDF cover page layout</h2>
+    <p class="hint">
+      Controls what appears on the generated PDF's cover page, and in what order. Blank
+      fields are always skipped automatically - a field being mapped here doesn't mean it
+      shows up on every PDF, only on ones where that column actually has a value. Each
+      dropdown offers the columns this tool actually knows about by name (e.g. "Sum:
+      Summa") - see <a href="#column-mapping">column mapping</a> below to change what any
+      of them point to, including row identity, attachment discovery, and the category
+      folder, which aren't offered as choices here at all. If a choice shows "not found
+      in last fetch," the sheet's real column name may not match what's configured -
+      that's also fixed below.
+    </p>
+
+    <div id="sections"></div>
+    <div class="top-actions">
+      <button id="add-section">Add section</button>
+      <button id="save-button-layout">Save</button>
+      <span class="status" id="save-status-layout"></span>
+    </div>
+  </section>
+
+  <section class="page-section" id="column-mapping">
+    <h2>Sheet column mapping</h2>
+    <p class="hint">
+      Maps each thing this tool needs from the sheet to the real column header in your
+      Google Form/Sheet - this is the fix for a dropdown elsewhere showing a column that
+      turns out to have no data, or a "not found" warning on the
+      <a href="#pdf-layout">PDF layout</a> above. The "Sample value" column shows what
+      that column actually holds on the first fetched row, so you can confirm a mapping
+      before saving instead of guessing. Choosing "(Default)" leaves the setting unmapped
+      here entirely, deferring to <code>.env</code> or the compiled-in default instead -
+      the right choice for a column that genuinely doesn't exist in a given sheet (e.g.
+      mileage, for a committee that never reimburses it).
+    </p>
+    <p class="hint">Changes take effect immediately, on the very next action - no restart of `kvittomall webui` or any CLI command is needed, the same as the PDF layout above.</p>
+
+    <h3>Row identity, attachments, category</h3>
+    <div class="warning-banner">
+      ⚠ These determine which sheet row a database entry corresponds to, which links get
+      downloaded as attachments, and which <code>final/&lt;category&gt;/</code> folder a
+      PDF lands in - not just what's displayed. Changing one after entries already exist
+      means those rows won't be found under their new identity on the next fetch - existing
+      downloads/processed files/PDFs aren't deleted, just no longer linked to anything,
+      until reprocessed under the new mapping. Only change these if you're sure.
+    </div>
+    <table>
+      <colgroup>
+        <col style="width: 16%"><col style="width: 30%"><col style="width: 30%"><col style="width: 24%">
+      </colgroup>
+      <thead><tr><th>Field</th><th>Currently</th><th>Map to column</th><th>Sample value</th></tr></thead>
+      <tbody>
+        {% for s in settings if s.is_structural %}
+        <tr data-env-var="{{ s.env_var }}">
+          <td>{{ s.label }}</td>
+          <td>{{ s.current }}{% if not s.overridden %} <span class="default-tag">(default)</span>{% endif %}{% if s.not_found %} <span class="warn">⚠ not found in last fetch</span>{% endif %}</td>
+          <td><select class="column-select"></select></td>
+          <td class="preview"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h3>Cover page display fields</h3>
+    <table>
+      <colgroup>
+        <col style="width: 16%"><col style="width: 30%"><col style="width: 30%"><col style="width: 24%">
+      </colgroup>
+      <thead><tr><th>Field</th><th>Currently</th><th>Map to column</th><th>Sample value</th></tr></thead>
+      <tbody>
+        {% for s in settings if not s.is_structural %}
+        <tr data-env-var="{{ s.env_var }}">
+          <td>{{ s.label }}</td>
+          <td>{{ s.current }}{% if not s.overridden %} <span class="default-tag">(default)</span>{% endif %}{% if s.not_found %} <span class="warn">⚠ not found in last fetch</span>{% endif %}</td>
+          <td><select class="column-select"></select></td>
+          <td class="preview"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="top-actions">
+      <button id="save-button-mapping">Save</button>
+      <span class="status" id="save-status-mapping"></span>
+    </div>
+  </section>
+
+  <script>
+    // ---- PDF cover page layout ----
+    (function () {
+      let sectionsData = {{ sections | tojson }};
+      // Each choice is {env_var, label, value, not_found} - one per named SHEET_COLUMN_*
+      // setting (config.column_settings()) that's allowed as a display field. `value` is
+      // that setting's *current* resolved column (from column mapping, .env, or the
+      // compiled default), so the dropdown always reads e.g. "Name: Namn" rather than a
+      // bare column header.
+      const COLUMN_CHOICES = {{ column_choices | tojson }};
+      const FORMATTERS = {{ formatters | tojson }};
+      // Display-only labels for the format dropdown - "plain"/"currency"/"mil" stay the
+      // stored values (pdf_layout.FORMATTERS's keys), but the suffix each one actually
+      // adds is what the user needs to see: no suffix, "kr", or "mil".
+      const FORMATTER_LABELS = { plain: "None", currency: "kr", mil: "mil" };
+
+      function button(text, onClick) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "small";
+        b.textContent = text;
+        b.addEventListener("click", onClick);
+        return b;
+      }
+
+      // Used for every move-up/move-down control (field rows and section headers
+      // alike): always rendered, never just omitted, so a row at the top or bottom of
+      // its group never has one fewer element than its neighbors - that's what made
+      // rows visually drift out of alignment before. A "missing" arrow becomes a
+      // disabled placeholder showing the null/empty-set sign instead of vanishing.
+      function arrowButton(symbol, title, onClick, disabled) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "arrow-btn";
+        b.textContent = disabled ? "∅" : symbol;
+        b.title = disabled ? "" : title;
+        b.disabled = !!disabled;
+        if (!disabled) b.addEventListener("click", onClick);
+        return b;
+      }
+
+      function deleteButton(title, onClick) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "icon-btn danger";
+        b.textContent = "🗑";
+        b.title = title;
+        b.addEventListener("click", onClick);
+        return b;
+      }
+
+      function fieldGridRow(className, showSectionSelect) {
+        const row = document.createElement("div");
+        row.className = className + (showSectionSelect ? " with-section-select" : "");
+        return row;
+      }
+
+      function fieldHeaderRow(showSectionSelect) {
+        const header = fieldGridRow("field-row field-grid-header", showSectionSelect);
+        const labels = showSectionSelect
+          ? ["Label", "Column", "Format", "", "", "", ""]
+          : ["Label", "Column", "Format", "", "", ""];
+        labels.forEach(text => {
+          const cell = document.createElement("span");
+          cell.textContent = text;
+          header.appendChild(cell);
+        });
+        return header;
+      }
+
+      function fieldRow(sIndex, f, fIndex, fieldCount) {
+        const showSectionSelect = sectionsData.length > 1;
+        const row = fieldGridRow("field-row", showSectionSelect);
+
+        const labelInput = document.createElement("input");
+        labelInput.type = "text";
+        labelInput.value = f.label;
+        labelInput.placeholder = "Label";
+        labelInput.addEventListener("input", () => { f.label = labelInput.value; });
+        row.appendChild(labelInput);
+
+        const columnSelect = document.createElement("select");
+        // A field's current column should always match one of COLUMN_CHOICES's values -
+        // but an old/hand-edited layout might not (e.g. a freeform pick from before this
+        // dropdown was restricted to named settings, or a setting that's since been
+        // remapped to something else entirely). Keep it as its own option in that case
+        // (so saving without touching this field doesn't silently change it) rather than
+        // letting it vanish from the list unexplained - its own text says so.
+        const matchesChoice = f.column && COLUMN_CHOICES.some(c => c.value === f.column);
+        const unrecognized = f.column && !matchesChoice;
+        if (unrecognized) {
+          const opt = document.createElement("option");
+          opt.value = f.column;
+          opt.textContent = `${f.column} (not one of the mapped columns - see Column mapping)`;
+          opt.selected = true;
+          columnSelect.appendChild(opt);
+        }
+        COLUMN_CHOICES.forEach(choice => {
+          const opt = document.createElement("option");
+          opt.value = choice.value;
+          opt.textContent = `${choice.label}: ${choice.value}` + (choice.not_found ? " ⚠ not found in last fetch" : "");
+          if (choice.value === f.column) opt.selected = true;
+          columnSelect.appendChild(opt);
+        });
+        columnSelect.addEventListener("change", () => { f.column = columnSelect.value; });
+        row.appendChild(columnSelect);
+
+        const formatterSelect = document.createElement("select");
+        FORMATTERS.forEach(key => {
+          const opt = document.createElement("option");
+          opt.value = key;
+          opt.textContent = FORMATTER_LABELS[key] || key;
+          if (key === f.formatter) opt.selected = true;
+          formatterSelect.appendChild(opt);
+        });
+        formatterSelect.addEventListener("change", () => { f.formatter = formatterSelect.value; });
+        row.appendChild(formatterSelect);
+
+        row.appendChild(arrowButton("↑", "Move up", () => { moveField(sIndex, fIndex, -1); }, fIndex === 0));
+        row.appendChild(arrowButton("↓", "Move down", () => { moveField(sIndex, fIndex, 1); }, fIndex === fieldCount - 1));
+
+        if (showSectionSelect) {
+          const sectionSelect = document.createElement("select");
+          sectionsData.forEach((_, otherIndex) => {
+            const opt = document.createElement("option");
+            opt.value = otherIndex;
+            opt.textContent = `Move to section ${otherIndex + 1}`;
+            if (otherIndex === sIndex) opt.selected = true;
+            sectionSelect.appendChild(opt);
+          });
+          sectionSelect.addEventListener("change", () => {
+            const target = parseInt(sectionSelect.value, 10);
+            if (target !== sIndex) moveFieldToSection(sIndex, fIndex, target);
+          });
+          row.appendChild(sectionSelect);
+        }
+
+        row.appendChild(deleteButton("Delete field", () => { removeField(sIndex, fIndex); }));
+        return row;
+      }
+
+      function render() {
+        const container = document.getElementById("sections");
+        container.innerHTML = "";
+        const showSectionSelect = sectionsData.length > 1;
+        sectionsData.forEach((section, sIndex) => {
+          const div = document.createElement("div");
+          div.className = "section";
+
+          const header = document.createElement("div");
+          header.className = "section-header";
+          const title = document.createElement("strong");
+          title.textContent = `Section ${sIndex + 1}`;
+          header.appendChild(title);
+          const controls = document.createElement("span");
+          controls.className = "controls";
+          controls.appendChild(arrowButton("↑", "Move section up", () => { moveSection(sIndex, -1); }, sIndex === 0));
+          controls.appendChild(arrowButton("↓", "Move section down", () => { moveSection(sIndex, 1); }, sIndex === sectionsData.length - 1));
+          controls.appendChild(deleteButton("Delete section", () => { removeSection(sIndex); }));
+          header.appendChild(controls);
+          div.appendChild(header);
+
+          if (section.fields.length === 0) {
+            const hint = document.createElement("p");
+            hint.className = "empty-hint";
+            hint.textContent = "No fields in this section yet.";
+            div.appendChild(hint);
+          } else {
+            div.appendChild(fieldHeaderRow(showSectionSelect));
+          }
+          section.fields.forEach((f, fIndex) => {
+            div.appendChild(fieldRow(sIndex, f, fIndex, section.fields.length));
+          });
+
+          div.appendChild(button("Add field", () => { addField(sIndex); }));
+          container.appendChild(div);
+        });
+      }
+
+      function moveSection(index, delta) {
+        const target = index + delta;
+        [sectionsData[index], sectionsData[target]] = [sectionsData[target], sectionsData[index]];
+        render();
+      }
+
+      function removeSection(index) {
+        if (sectionsData[index].fields.length && !confirm("Delete this section and its fields?")) return;
+        sectionsData.splice(index, 1);
+        render();
+      }
+
+      function addField(sIndex) {
+        sectionsData[sIndex].fields.push({ label: "", column: COLUMN_CHOICES[0] ? COLUMN_CHOICES[0].value : "", formatter: "plain" });
+        render();
+      }
+
+      function removeField(sIndex, fIndex) {
+        sectionsData[sIndex].fields.splice(fIndex, 1);
+        render();
+      }
+
+      function moveField(sIndex, fIndex, delta) {
+        const fields = sectionsData[sIndex].fields;
+        const target = fIndex + delta;
+        [fields[fIndex], fields[target]] = [fields[target], fields[fIndex]];
+        render();
+      }
+
+      function moveFieldToSection(sIndex, fIndex, targetIndex) {
+        const [f] = sectionsData[sIndex].fields.splice(fIndex, 1);
+        sectionsData[targetIndex].fields.push(f);
+        render();
+      }
+
+      document.getElementById("add-section").addEventListener("click", () => {
+        sectionsData.push({ fields: [] });
+        render();
+      });
+
+      document.getElementById("save-button-layout").addEventListener("click", async () => {
+        const statusEl = document.getElementById("save-status-layout");
+        statusEl.textContent = "Saving...";
+        statusEl.className = "status";
+        try {
+          const res = await fetch("/pdf-layout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sections: sectionsData }),
+          });
+          const body = await res.json();
+          if (res.ok) {
+            statusEl.textContent = "Saved.";
+            statusEl.className = "status ok";
+          } else {
+            statusEl.textContent = "Failed: " + body.error;
+            statusEl.className = "status fail";
+          }
+        } catch (e) {
+          statusEl.textContent = "Failed: could not reach the server.";
+          statusEl.className = "status fail";
+        }
+      });
+
+      render();
+    })();
+
+    // ---- Sheet column mapping ----
+    (function () {
+      const SETTINGS = {{ settings | tojson }};
+      const DISCOVERED_COLUMNS = {{ discovered_columns | tojson }};
+      const SAMPLE_ROW = {{ sample_row | tojson }};
+
+      function buildRow(s) {
+        const tr = document.querySelector(`tr[data-env-var="${s.env_var}"]`);
+        const select = tr.querySelector(".column-select");
+
+        // "(Default)" always comes first and means "no override - defer to .env/the
+        // compiled-in default" - the right choice for a column that's genuinely absent
+        // from this deployment's sheet, and what gets a setting omitted from the saved
+        // mapping entirely on save (the server already drops empty values).
+        const defaultNotFound = s.default_value && !DISCOVERED_COLUMNS.includes(s.default_value);
+        const defaultOpt = document.createElement("option");
+        defaultOpt.value = "";
+        defaultOpt.textContent = s.default_value
+          ? `(Default: ${s.default_value})${defaultNotFound ? " ⚠ not found in last fetch" : ""}`
+          : "(Default: none)";
+        select.appendChild(defaultOpt);
+
+        const notFound = s.overridden && s.current && !DISCOVERED_COLUMNS.includes(s.current);
+        const choices = notFound ? [s.current, ...DISCOVERED_COLUMNS] : DISCOVERED_COLUMNS;
+        choices.forEach(col => {
+          const opt = document.createElement("option");
+          opt.value = col;
+          opt.textContent = (notFound && col === s.current) ? `${col} (not found in last fetch)` : col;
+          if (s.overridden && col === s.current) opt.selected = true;
+          select.appendChild(opt);
+        });
+        if (!s.overridden) defaultOpt.selected = true;
+
+        const preview = tr.querySelector(".preview");
+        function updatePreview() {
+          const val = select.value || s.default_value;
+          if (Object.prototype.hasOwnProperty.call(SAMPLE_ROW, val)) {
+            preview.textContent = SAMPLE_ROW[val] || "(empty)";
+          } else {
+            preview.textContent = "-";
+          }
+        }
+        select.addEventListener("change", updatePreview);
+        updatePreview();
+      }
+
+      SETTINGS.forEach(buildRow);
+
+      document.getElementById("save-button-mapping").addEventListener("click", async () => {
+        const payload = {};
+        SETTINGS.forEach(s => {
+          const select = document.querySelector(`tr[data-env-var="${s.env_var}"] .column-select`);
+          payload[s.env_var] = select.value;
+        });
+        const statusEl = document.getElementById("save-status-mapping");
+        statusEl.textContent = "Saving...";
+        statusEl.className = "status";
+        try {
+          const res = await fetch("/column-mapping", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const body = await res.json();
+          if (res.ok) {
+            statusEl.textContent = "Saved - takes effect immediately.";
+            statusEl.className = "status ok";
+          } else {
+            statusEl.textContent = "Failed: " + body.error;
+            statusEl.className = "status fail";
+          }
+        } catch (e) {
+          statusEl.textContent = "Failed: could not reach the server.";
+          statusEl.className = "status fail";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

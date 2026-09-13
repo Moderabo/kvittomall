@@ -1,6 +1,38 @@
+import sqlite3
+
 from kvittomall import db
 
 # conn fixture lives in conftest.py - shared with test_pdf_gen.py's orchestration tests.
+
+
+def test_migrate_adds_handled_column_and_upgrades_old_status(tmp_path, monkeypatch):
+    """A database created before the `handled` column existed - CREATE TABLE IF NOT
+    EXISTS doesn't add it retroactively, so connect() must patch it in. A row still
+    carrying the old status="handled" value (from before that was its own column) must
+    also come out the other side as status="generated", handled=1.
+    """
+    db_path = tmp_path / "old.db"
+    raw = sqlite3.connect(str(db_path))
+    raw.execute("""
+        CREATE TABLE rows (
+            row_key TEXT PRIMARY KEY, base_filename TEXT NOT NULL, transaktionstyp TEXT,
+            content_hash TEXT NOT NULL, links_hash TEXT NOT NULL, final_pdf_path TEXT,
+            final_pdf_size INTEGER, final_pdf_content_hash TEXT, generated_at TEXT,
+            status TEXT NOT NULL DEFAULT 'new', last_error TEXT, updated_at TEXT NOT NULL
+        )
+    """)
+    raw.execute(
+        "INSERT INTO rows (row_key, base_filename, status, content_hash, links_hash, updated_at) "
+        "VALUES ('k1', 'base1', 'handled', 'h', 'l', 'now')"
+    )
+    raw.commit()
+    raw.close()
+
+    monkeypatch.setattr(db, "DB_PATH", str(db_path))
+    with db.connect() as conn:
+        row = db.get_row(conn, "k1")
+        assert row["status"] == "generated"
+        assert row["handled"] == 1
 
 
 def test_upsert_row_insert_then_update(conn):
@@ -86,6 +118,35 @@ def test_classify_generated_valid_when_matches(conn, tmp_path):
     row = db.get_row(conn, "k1")
     kind, reason = db.classify_generated(row, "hash", str(tmp_path))
     assert (kind, reason) == ("valid", "ok")
+
+
+def test_classify_generated_valid_when_handled_and_unchanged(conn, tmp_path):
+    # status stays "generated" regardless of the separate `handled` column - being
+    # handled must never make classify_generated think this needs regenerating.
+    (tmp_path / "handled" / "privat").mkdir(parents=True)
+    pdf_path = tmp_path / "handled" / "privat" / "base1.pdf"
+    pdf_path.write_bytes(b"1234567890")
+
+    db.upsert_row(conn, "k1", "base1", "Privat utlägg", "hash", "links1")
+    # mirrors the real flow: generate first (records the content hash it was built
+    # from), then set_handled relocates it without touching that hash.
+    db.mark_generated(conn, "k1", "privat/base1.pdf", 10, "hash")
+    db.set_handled(conn, "k1", True, "handled/privat/base1.pdf")
+    row = db.get_row(conn, "k1")
+    assert row["status"] == "generated"
+    assert row["handled"] == 1
+    kind, reason = db.classify_generated(row, "hash", str(tmp_path))
+    assert (kind, reason) == ("valid", "ok")
+
+
+def test_classify_generated_stale_when_handled_row_content_changed(conn, tmp_path):
+    db.upsert_row(conn, "k1", "base1", "Privat utlägg", "old-hash", "links1")
+    db.mark_generated(conn, "k1", "privat/base1.pdf", 10, "old-hash")
+    db.set_handled(conn, "k1", True, "handled/privat/base1.pdf")
+    row = db.get_row(conn, "k1")
+    kind, reason = db.classify_generated(row, "new-hash", str(tmp_path))
+    assert kind == "stale"
+    assert "changed" in reason
 
 
 def test_upsert_attachment_new_then_unchanged(conn):

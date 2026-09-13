@@ -163,22 +163,41 @@ def _adopt_existing(conn, row_key: str, link_index: int, path: str) -> bool:
     return True
 
 
-def run() -> None:
-    with run_timer(logger, "process"):
+def run(only: str | None = None) -> None:
+    with run_timer(logger, "process" if only is None else f"process (row {only})"):
         try:
             preset = get_quality_preset()
         except SystemExit as e:
             logger.error(f"Process failed before it could start: {e}")
             raise SystemExit(1)
-        _process_all(preset)
+        _process_all(preset, only)
 
 
-def _process_all(preset: QualityPreset) -> None:
+def remove_processed(row_key: str) -> int:
+    """Deletes every processed file recorded for this row - the same disk-only cleanup
+    as drive.remove_downloads(): is_process_valid() re-checks disk on every run, so a
+    later `process` run just redoes it from the (still-present) download.
+    """
+    removed = 0
+    with db.connect() as conn:
+        for att in db.list_attachments(conn, row_key):
+            path = att["processed_path"]
+            if path and os.path.exists(path):
+                os.remove(path)
+                removed += 1
+                logger.info(f"Removed processed file for {row_key} attachment {att['link_index']}: {path}")
+    return removed
+
+
+def _process_all(preset: QualityPreset, only: str | None = None) -> None:
     rows = read_rows()
     with db.connect() as conn, ProgressBar(len(rows), "Processing") as bar:
         for i, row in enumerate(rows):
             row_key = sync_row(conn, row)
             if row_key is None:
+                bar.update()
+                continue
+            if only is not None and row_key != only:
                 bar.update()
                 continue
 

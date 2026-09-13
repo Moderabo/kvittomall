@@ -21,7 +21,7 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Compile check
-        run: python -m py_compile kvittomall/*.py
+        run: python -m py_compile kvittomall/*.py kvittomall/web/*.py
 
       - name: Run tests
         run: pytest -v --cov=kvittomall --cov-report=term-missing
