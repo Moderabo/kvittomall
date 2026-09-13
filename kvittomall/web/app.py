@@ -37,6 +37,54 @@ PROCESSED_IMAGE_EXTENSIONS = (".jpg", ".jpeg")
 # rather than a thumbnail that would likely just show up broken.
 DOWNLOAD_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp")
 
+# Web-UI-only Swedish display labels for the pipeline stage names - cli.py's
+# PIPELINE_ORDER/STAGES keys (also this page's data-stage/data-run attributes and the
+# /run/<stage> URLs) stay the literal English stage names, since those are real CLI
+# subcommands; only the text shown in the stage-name span is translated here.
+STAGE_LABELS = {
+    "fetch": "hämta",
+    "download": "ladda ner",
+    "process": "bearbeta",
+    "generate": "generera",
+}
+
+# Web-UI-only Swedish display labels for status.row_status()'s `state` strings.
+# status.py itself - and the CLI's `status` command, which prints these exact same
+# strings - stays in English; only what actually reaches a browser gets translated,
+# via these known exact matches plus the two prefixed/dynamic shapes below
+# ("needs repair: ...", "ERROR: ...").
+_STATE_LABELS = {
+    "not yet synced": "inte synkroniserad ännu",
+    "handled": "hanterad",
+    "generated": "genererad",
+    "PDF removed": "PDF borttagen",
+    "not yet generated": "inte genererad ännu",
+    "source row data changed since this PDF was generated": "källdata har ändrats sedan denna PDF genererades",
+    "recorded final PDF is zero bytes": "den registrerade PDF-filen är noll byte",
+    "recorded final PDF size does not match what's on disk": "den registrerade PDF-filens storlek matchar inte filen på disk",
+}
+
+
+def translate_state(state: str) -> str:
+    if state in _STATE_LABELS:
+        return _STATE_LABELS[state]
+    if state.startswith("needs repair: "):
+        reason = state[len("needs repair: "):]
+        return f"behöver repareras: {_STATE_LABELS.get(reason, reason)}"
+    if state.startswith("ERROR: "):
+        return f"FEL: {state[len('ERROR: '):]}"
+    return state
+
+
+# status._location()'s own return values ("new" | "handled" | "-") - same web-UI-only
+# translation approach as translate_state() above.
+_LOCATION_LABELS = {"new": "ny", "handled": "hanterad"}
+
+
+def translate_location(location: str) -> str:
+    return _LOCATION_LABELS.get(location, location)
+
+
 def entries_list_columns() -> list[tuple[str, tuple[str, ...]]]:
     """Curated columns shown in the entries list, alongside name/category/status - each
     a tuple of column(s) to try in order (pulled through config.py's constants, never a
@@ -48,11 +96,11 @@ def entries_list_columns() -> list[tuple[str, tuple[str, ...]]]:
     reason as config.py's __getattr__ - these must resolve fresh on every request.
     """
     return [
-        ("Date", (config.DATE_COLUMN,)),
-        ("Sum", (config.SUM_COLUMN, config.MIL_COLUMN)),
-        ("Committee", (config.COMMITTEE_COLUMN,)),
-        ("Event", (config.EVENT_COLUMN,)),
-        ("Specification", (config.SPECIFICATION_COLUMN,)),
+        ("Datum", (config.DATE_COLUMN,)),
+        ("Summa", (config.SUM_COLUMN, config.MIL_COLUMN)),
+        ("Utskott", (config.COMMITTEE_COLUMN,)),
+        ("Arrangemang", (config.EVENT_COLUMN,)),
+        ("Specificering", (config.SPECIFICATION_COLUMN,)),
     ]
 
 
@@ -286,6 +334,9 @@ def _start(name: str, target: Callable, *args) -> bool:
 def create_app() -> Flask:
     ensure_dirs()
     app = Flask(__name__)
+    app.jinja_env.filters["stage_label"] = lambda s: STAGE_LABELS.get(s, s)
+    app.jinja_env.filters["state_label"] = translate_state
+    app.jinja_env.filters["location_label"] = translate_location
 
     @app.get("/")
     def index():

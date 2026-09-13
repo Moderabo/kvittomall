@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="sv">
 <head>
   <meta charset="utf-8">
   <title>kvittomall - {{ info.name or row_key }}</title>
@@ -37,85 +37,85 @@
   </style>
 </head>
 <body>
-  <nav><a href="{{ url_for('index') }}">&larr; Dashboard</a></nav>
-  <h1>{{ info.name or '(no name)' }}</h1>
+  <nav><a href="{{ url_for('index') }}">&larr; Instrumentpanel</a></nav>
+  <h1>{{ info.name or '(inget namn)' }}</h1>
   <div class="meta">
-    {{ info.category }} &middot; <span class="badge {{ info.kind }}">{{ info.state }}</span>
+    {{ info.category }} &middot; <span class="badge {{ info.kind }}">{{ info.state | state_label }}</span>
   </div>
 
   <section>
-    <h2>Details</h2>
+    <h2>Detaljer</h2>
     {% for column, value in info.fields %}
     <div class="field">
       <span class="field-label">{{ column }}:</span>{{ value }}
       {% if column in info.unmapped_columns %}
-      <span class="unmapped-warning" title="Not mapped to any PDF field - won't appear on the generated PDF.">⚠</span>
+      <span class="unmapped-warning" title="Inte kopplad till något PDF-fält - visas inte på den genererade PDF:en.">⚠</span>
       {% endif %}
     </div>
     {% endfor %}
   </section>
 
   <section>
-    <h2>Attachments</h2>
+    <h2>Bilagor</h2>
     {% if info.attachments %}
       {% for a in info.attachments %}
       <div class="attachment">
         <span class="label">#{{ a.link_index }}</span>
         {% if a.downloaded_ok and a.download_is_image %}
           <a href="{{ url_for('entry_download_file', row_key=row_key, link_index=a.link_index) }}" target="_blank">
-            <img src="{{ url_for('entry_download_file', row_key=row_key, link_index=a.link_index) }}" alt="downloaded attachment {{ a.link_index }}">
+            <img src="{{ url_for('entry_download_file', row_key=row_key, link_index=a.link_index) }}" alt="nedladdad bilaga {{ a.link_index }}">
           </a>
         {% elif a.downloaded_ok %}
-          <a href="{{ url_for('entry_download_file', row_key=row_key, link_index=a.link_index) }}" target="_blank">Downloaded ({{ a.download_ext }})</a>
+          <a href="{{ url_for('entry_download_file', row_key=row_key, link_index=a.link_index) }}" target="_blank">Nedladdad ({{ a.download_ext }})</a>
         {% else %}
-          <span class="missing">not downloaded</span>
+          <span class="missing">ej nedladdad</span>
         {% endif %}
         {% if a.processed_ok and a.processed_is_image %}
           <a href="{{ url_for('entry_processed_file', row_key=row_key, link_index=a.link_index) }}" target="_blank">
-            <img src="{{ url_for('entry_processed_file', row_key=row_key, link_index=a.link_index) }}" alt="processed attachment {{ a.link_index }}">
+            <img src="{{ url_for('entry_processed_file', row_key=row_key, link_index=a.link_index) }}" alt="bearbetad bilaga {{ a.link_index }}">
           </a>
         {% elif a.processed_ok %}
-          <a href="{{ url_for('entry_processed_file', row_key=row_key, link_index=a.link_index) }}" target="_blank">Processed (PDF)</a>
+          <a href="{{ url_for('entry_processed_file', row_key=row_key, link_index=a.link_index) }}" target="_blank">Bearbetad (PDF)</a>
         {% else %}
-          <span class="missing">not processed</span>
+          <span class="missing">ej bearbetad</span>
         {% endif %}
       </div>
       {% endfor %}
     {% else %}
-      <p class="missing">No receipt links on this entry.</p>
+      <p class="missing">Inga kvittolänkar på denna post.</p>
     {% endif %}
   </section>
 
   <section>
-    <h2>Final PDF</h2>
+    <h2>Färdig PDF</h2>
     {% if info.final_pdf_exists %}
-      <a href="{{ url_for('entry_final_file', row_key=row_key) }}" target="_blank">Open final PDF</a>
-      ({{ info.location }}{% if info.kind not in ('valid', 'handled') %}, out of date{% endif %})
+      <a href="{{ url_for('entry_final_file', row_key=row_key) }}" target="_blank">Öppna färdig PDF</a>
+      ({{ info.location | location_label }}{% if info.kind not in ('valid', 'handled') %}, inaktuell{% endif %})
     {% else %}
-      <span class="missing">not generated</span>
+      <span class="missing">ej genererad</span>
     {% endif %}
   </section>
 
   <section>
-    <h2>Actions</h2>
+    <h2>Åtgärder</h2>
     <div class="actions" data-row-key="{{ row_key | tojson }}">
-      <button data-run="download">Download</button>
-      <button data-run="process">Process</button>
-      <button data-run="generate">Generate</button>
-      <button data-run-all>Run all (this entry)</button>
-      <button data-run="handled" data-eligible="{{ 'true' if info.final_pdf_path else 'false' }}">{{ 'Unmark handled' if info.kind == 'handled' else 'Mark handled' }}</button>
+      <button data-run="download">Ladda ner</button>
+      <button data-run="process">Bearbeta</button>
+      <button data-run="generate">Generera</button>
+      <button data-run-all>Kör allt (denna post)</button>
+      <button data-run="handled" data-eligible="{{ 'true' if info.final_pdf_path else 'false' }}">{{ 'Avmarkera som hanterad' if info.kind == 'handled' else 'Markera som hanterad' }}</button>
       <span class="status" id="action-status"></span>
     </div>
   </section>
 
   <section>
-    <h2>Remove files</h2>
-    <p class="missing">Deletes files from disk only - never the CSV, database, or this entry's listing. A later run just re-downloads/re-processes/regenerates whatever's missing.</p>
+    <h2>Ta bort filer</h2>
+    <p class="missing">Tar bara bort filer från disk - aldrig CSV:n, databasen eller postens listning. En senare körning laddar bara ner/bearbetar/genererar om det som saknas.</p>
     <div class="actions">
-      <button data-remove="downloads">Remove downloaded files</button>
-      <button data-remove="processed">Remove processed files</button>
-      <button data-remove="final">Remove final PDF</button>
-      <button data-remove="all">Remove all files</button>
+      <button data-remove="downloads">Ta bort nedladdade filer</button>
+      <button data-remove="processed">Ta bort bearbetade filer</button>
+      <button data-remove="final">Ta bort färdig PDF</button>
+      <button data-remove="all">Ta bort alla filer</button>
       <span class="status remove-status"></span>
     </div>
   </section>
@@ -155,11 +155,11 @@
       }
 
       if (anyRunningHere) {
-        statusEl.textContent = "Running...";
+        statusEl.textContent = "Kör...";
         statusEl.className = "status running";
       } else if (activeKey && results[activeKey]) {
         const r = results[activeKey];
-        statusEl.textContent = `${r.ok ? "OK" : "Failed"} - ${r.message} (${r.finished_at})`;
+        statusEl.textContent = `${r.ok ? "OK" : "Misslyckades"} - ${r.message} (${r.finished_at})`;
         statusEl.className = "status " + (r.ok ? "ok" : "fail");
       } else {
         statusEl.textContent = "";
@@ -172,7 +172,7 @@
       const removeStatusEl = document.querySelector(".remove-status");
       const runningRemove = REMOVE_TARGETS.find(w => running === removeKeyFor(w));
       if (runningRemove) {
-        removeStatusEl.textContent = "Running...";
+        removeStatusEl.textContent = "Kör...";
         removeStatusEl.className = "status remove-status running";
       } else {
         let activeRemoveKey = null;
@@ -181,7 +181,7 @@
         }
         if (activeRemoveKey) {
           const r = results[activeRemoveKey];
-          removeStatusEl.textContent = `${r.ok ? "OK" : "Failed"} - ${r.message} (${r.finished_at})`;
+          removeStatusEl.textContent = `${r.ok ? "OK" : "Misslyckades"} - ${r.message} (${r.finished_at})`;
           removeStatusEl.className = "status remove-status " + (r.ok ? "ok" : "fail");
         } else {
           removeStatusEl.textContent = "";
@@ -221,7 +221,7 @@
 
     document.querySelectorAll("[data-remove]").forEach(btn => {
       btn.addEventListener("click", () => {
-        if (!confirm(`Delete ${btn.textContent.trim().toLowerCase()} for this entry? This can't be undone directly (though a later run can redownload/reprocess/regenerate them).`)) {
+        if (!confirm(`Radera ${btn.textContent.trim().toLowerCase()} för denna post? Detta kan inte ångras direkt (men en senare körning kan ladda ner/bearbeta/generera om dem).`)) {
           return;
         }
         trigger(`/entries/${encodeURIComponent(ROW_KEY)}/remove/${btn.dataset.remove}`);

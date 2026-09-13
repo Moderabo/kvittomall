@@ -102,19 +102,19 @@ def _column(env_var: str, default: str) -> str:
 # rowkey.py/drive.py/category_for(). This dict is also /column-mapping's source of
 # truth for which settings exist at all (see column_settings() below).
 _COLUMN_DEFAULTS: dict[str, tuple[str, str, str, bool]] = {
-    "TIMESTAMP_COLUMN": ("SHEET_COLUMN_TIMESTAMP", "Timestamp", "Tidstämpel", True),
-    "NAME_COLUMN": ("SHEET_COLUMN_NAME", "Name", "Namn", True),
-    "RECEIPT_LINKS_COLUMN": ("SHEET_COLUMN_RECEIPT_LINKS", "Receipt links", "Ladda upp bild", True),
-    "TRANSACTION_TYPE_COLUMN": ("SHEET_COLUMN_TRANSACTION_TYPE", "Transaction type", "Transaktionstyp", True),
-    "SUM_COLUMN": ("SHEET_COLUMN_SUM", "Sum", "Summa", False),
-    "DATE_COLUMN": ("SHEET_COLUMN_DATE", "Date", "Datum för händelsen", False),
-    "MIL_COLUMN": ("SHEET_COLUMN_MIL", "Mileage", "Körda mil", False),
-    "ROUTE_COLUMN": ("SHEET_COLUMN_ROUTE", "Route", "Sträcka", False),
-    "ACCOUNT_COLUMN": ("SHEET_COLUMN_ACCOUNT", "Account", "Kontonummer", False),
-    "COMMITTEE_COLUMN": ("SHEET_COLUMN_COMMITTEE", "Committee", "Utskott", False),
-    "EVENT_COLUMN": ("SHEET_COLUMN_EVENT", "Event", "Arrangemang", False),
-    "SPECIFICATION_COLUMN": ("SHEET_COLUMN_SPECIFICATION", "Specification", "Specificering", False),
-    "OTHER_COLUMN": ("SHEET_COLUMN_OTHER", "Other", "Övrigt", False),
+    "TIMESTAMP_COLUMN": ("SHEET_COLUMN_TIMESTAMP", "Tidstämpel", "Tidstämpel", True),
+    "NAME_COLUMN": ("SHEET_COLUMN_NAME", "Namn", "Namn", True),
+    "RECEIPT_LINKS_COLUMN": ("SHEET_COLUMN_RECEIPT_LINKS", "Kvittolänkar", "Ladda upp bild", True),
+    "TRANSACTION_TYPE_COLUMN": ("SHEET_COLUMN_TRANSACTION_TYPE", "Transaktionstyp", "Transaktionstyp", True),
+    "SUM_COLUMN": ("SHEET_COLUMN_SUM", "Summa", "Summa", False),
+    "DATE_COLUMN": ("SHEET_COLUMN_DATE", "Datum", "Datum för händelsen", False),
+    "MIL_COLUMN": ("SHEET_COLUMN_MIL", "Körda mil", "Körda mil", False),
+    "ROUTE_COLUMN": ("SHEET_COLUMN_ROUTE", "Sträcka", "Sträcka", False),
+    "ACCOUNT_COLUMN": ("SHEET_COLUMN_ACCOUNT", "Kontonummer", "Kontonummer", False),
+    "COMMITTEE_COLUMN": ("SHEET_COLUMN_COMMITTEE", "Utskott", "Utskott", False),
+    "EVENT_COLUMN": ("SHEET_COLUMN_EVENT", "Arrangemang", "Arrangemang", False),
+    "SPECIFICATION_COLUMN": ("SHEET_COLUMN_SPECIFICATION", "Specificering", "Specificering", False),
+    "OTHER_COLUMN": ("SHEET_COLUMN_OTHER", "Övrigt", "Övrigt", False),
 }
 
 

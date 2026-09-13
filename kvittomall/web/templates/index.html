@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="sv">
 <head>
   <meta charset="utf-8">
   <title>kvittomall</title>
@@ -50,35 +50,35 @@
 <body>
   <h1>kvittomall</h1>
   <nav>
-    <a href="{{ url_for('config_page') }}#pdf-layout">PDF layout &rarr;</a>
+    <a href="{{ url_for('config_page') }}#pdf-layout">PDF-layout &rarr;</a>
     &middot;
-    <a href="{{ url_for('config_page') }}#column-mapping">Column mapping &rarr;</a>
+    <a href="{{ url_for('config_page') }}#column-mapping">Kolumnmappning &rarr;</a>
   </nav>
 
   {% for stage in stages %}
   <div class="stage" data-stage="{{ stage }}">
-    <span class="stage-name">{{ stage }}</span>
-    <button data-run="{{ stage }}">Run</button>
+    <span class="stage-name">{{ stage | stage_label }}</span>
+    <button data-run="{{ stage }}">Kör</button>
     <span class="status"></span>
   </div>
   {% endfor %}
 
   <div class="run-all" data-stage="run">
-    <button data-run-all>Run all</button>
+    <button data-run-all>Kör alla</button>
     <span class="status"></span>
   </div>
 
   <div class="run-all" data-stage="handled">
-    <button data-run="handled">Mark all handled</button>
+    <button data-run="handled">Markera alla som hanterade</button>
     <span class="status"></span>
   </div>
 
   <div class="run-all danger-zone" data-stage="clean-all">
-    <button class="danger" id="clean-all-button">Clean all</button>
+    <button class="danger" id="clean-all-button">Rensa allt</button>
     <span class="status"></span>
   </div>
 
-  <h2>Entries</h2>
+  <h2>Poster</h2>
 
   {% if entries %}
   <div class="count" id="filter-count"></div>
@@ -86,10 +86,10 @@
   <table id="entries-table">
     <thead>
       <tr>
-        <th data-sort>Category</th>
-        <th data-sort>Name</th>
+        <th data-sort>Kategori</th>
+        <th data-sort>Namn</th>
         {% for h in extra_headers %}<th data-sort>{{ h }}</th>{% endfor %}
-        <th data-sort>Attachments</th>
+        <th data-sort>Bilagor</th>
         <th data-sort>Status</th>
       </tr>
       <tr class="filter-row">
@@ -105,21 +105,21 @@
       <tr>
         {% if e.row_key %}
         <td><a class="row-link" href="{{ url_for('entry_detail', row_key=e.row_key) }}">{{ e.category }}</a></td>
-        <td><a class="row-link" href="{{ url_for('entry_detail', row_key=e.row_key) }}">{{ e.name or '(no name)' }}</a></td>
+        <td><a class="row-link" href="{{ url_for('entry_detail', row_key=e.row_key) }}">{{ e.name or '(inget namn)' }}</a></td>
         {% for value in e.extra %}
         <td><a class="row-link" href="{{ url_for('entry_detail', row_key=e.row_key) }}">{{ value or '-' }}</a></td>
         {% endfor %}
         <td><a class="row-link" href="{{ url_for('entry_detail', row_key=e.row_key) }}">
           {% if e.attachments %}
-            {{ e.attachments | selectattr('downloaded_ok') | list | length }}/{{ e.attachments | length }} dl,
-            {{ e.attachments | selectattr('processed_ok') | list | length }}/{{ e.attachments | length }} proc
+            {{ e.attachments | selectattr('downloaded_ok') | list | length }}/{{ e.attachments | length }} nedl,
+            {{ e.attachments | selectattr('processed_ok') | list | length }}/{{ e.attachments | length }} bearb
           {% else %}-{% endif %}
         </a></td>
         <td><a class="row-link" href="{{ url_for('entry_detail', row_key=e.row_key) }}">
-          <span class="badge {{ e.kind }}">{{ e.state }}</span>
+          <span class="badge {{ e.kind }}">{{ e.state | state_label }}</span>
         </a></td>
         {% else %}
-        <td colspan="{{ 4 + extra_headers | length }}">{{ e.name or '(missing timestamp - cannot be identified)' }}</td>
+        <td colspan="{{ 4 + extra_headers | length }}">{{ e.name or '(saknar tidstämpel - kan inte identifieras)' }}</td>
         {% endif %}
       </tr>
       {% endfor %}
@@ -127,7 +127,7 @@
   </table>
   </div>
   {% else %}
-  <p class="empty">No entries yet - run "fetch" first.</p>
+  <p class="empty">Inga poster ännu - kör "fetch" först.</p>
   {% endif %}
 
   <script>
@@ -146,11 +146,11 @@
         button.disabled = running !== null;
 
         if (isRunning) {
-          statusEl.textContent = "Running...";
+          statusEl.textContent = "Kör...";
           statusEl.className = "status running";
         } else if (results[stage]) {
           const r = results[stage];
-          statusEl.textContent = `${r.ok ? "OK" : "Failed"} - ${r.message} (${r.finished_at})`;
+          statusEl.textContent = `${r.ok ? "OK" : "Misslyckades"} - ${r.message} (${r.finished_at})`;
           statusEl.className = "status " + (r.ok ? "ok" : "fail");
         } else {
           statusEl.textContent = "";
@@ -191,9 +191,9 @@
     document.querySelector("[data-run-all]").addEventListener("click", () => trigger("/run-all"));
     document.getElementById("clean-all-button").addEventListener("click", () => {
       if (!confirm(
-        "This permanently deletes the ENTIRE database, every downloaded/processed " +
-        "file, and every generated PDF (handled or not) - literally everything in " +
-        "data/ and final/. This cannot be undone. Are you absolutely sure?"
+        "Detta raderar permanent HELA databasen, alla nedladdade/bearbetade filer " +
+        "och alla genererade PDF:er (hanterade eller ej) - bokstavligen allt i " +
+        "data/ och final/. Detta går inte att ångra. Är du helt säker?"
       )) {
         return;
       }
@@ -261,7 +261,7 @@
           row.hidden = !matches;
           if (matches) visible++;
         });
-        filterCount.textContent = active.length ? `${visible} of ${rows.length} shown` : `${rows.length} entries`;
+        filterCount.textContent = active.length ? `${visible} av ${rows.length} visas` : `${rows.length} poster`;
       }
 
       filterInputs.forEach(inp => inp.addEventListener("input", applyFilters));
