@@ -13,7 +13,23 @@ services:
   kvittomall:
     build: .
     ports:
-      - "${WEBUI_PORT:-5000}:${WEBUI_PORT:-5000}"
+      # Bound to the host's loopback interface only, by default - matches the
+      # non-Docker default of WEBUI_HOST=127.0.0.1 (see the `environment:` entry below
+      # for why that variable itself can't do this job inside a container). To reach it
+      # from another machine (e.g. this runs on a home server/VM you browse to
+      # remotely), change this to "${WEBUI_PORT:-5000}:${WEBUI_PORT:-5000}" to publish
+      # on all of the host's interfaces instead.
+      - "127.0.0.1:${WEBUI_PORT:-5000}:${WEBUI_PORT:-5000}"
+    environment:
+      # Always 0.0.0.0 inside the container, regardless of what WEBUI_HOST is set to in
+      # .env: a container has its own network namespace, so binding to 127.0.0.1 in
+      # here would mean "reachable only from inside this container" - Docker's `ports:`
+      # mapping above forwards to the container's external interface, never its
+      # loopback, so a 127.0.0.1 bind would make the app unreachable even from the host
+      # itself. This line overrides any WEBUI_HOST from env_file below (Compose applies
+      # `environment:` after `env_file:`) - actual exposure is controlled by the
+      # `ports:` line above instead, not by this variable.
+      - WEBUI_HOST=0.0.0.0
     env_file:
       - .env
     volumes:
