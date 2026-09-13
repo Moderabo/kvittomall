@@ -186,7 +186,7 @@ IMAGE_QUALITY = _env("IMAGE_QUALITY", "normal")
 # interface, not just localhost - the VM/server this typically runs on is rarely the
 # machine you browse from, so binding to 127.0.0.1 alone would make it unreachable
 # from anywhere else on the network.
-WEBUI_HOST = _env("WEBUI_HOST", "0.0.0.0")
+WEBUI_HOST = _env("WEBUI_HOST", "127.0.0.1")
 WEBUI_PORT = int(_env("WEBUI_PORT", "5000"))
 
 # --- PDF text content ---
