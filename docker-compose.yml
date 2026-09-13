@@ -1,0 +1,36 @@
+# Quick start:
+#   1. cp .env.example .env, then fill in SHEET_ID/SHEET_GID (and anything else you need).
+#   2. Drop your Google service-account JSON key into ./secrets/ and point
+#      GOOGLE_SERVICE_ACCOUNT_FILE in .env at /app/secrets/<its filename>.
+#   3. touch pdf_layout.json column_mapping.json - so Docker bind-mounts them as files,
+#      not directories, the first time (see README.md's Docker section for why).
+#   4. docker compose up -d --build
+# The web UI is then at http://localhost:5000 (or whatever WEBUI_PORT you set).
+#
+# For a one-off CLI command instead of the web UI:
+#   docker compose run --rm kvittomall fetch
+#   docker compose run --rm kvittomall status
+
+services:
+  kvittomall:
+    build: .
+    ports:
+      - "${WEBUI_PORT:-5000}:${WEBUI_PORT:-5000}"
+    env_file:
+      - .env
+    volumes:
+      # Runtime state the pipeline owns and rebuilds itself - see paths.py. Without
+      # these, every `docker compose up` would start from a completely empty state.
+      - ./data:/app/data
+      - ./final:/app/final
+      - ./logs:/app/logs
+      # Your service-account key(s) - read-only, since nothing here should ever write
+      # back into it. GOOGLE_SERVICE_ACCOUNT_FILE in .env should point at
+      # /app/secrets/<filename>, matching whatever you dropped in ./secrets/.
+      - ./secrets:/app/secrets:ro
+      # Web-UI-edited preferences (PDF cover-page layout, sheet column mapping) -
+      # optional, but without these two a container rebuild (not just a restart) loses
+      # any customization made via /config and falls back to the compiled-in defaults.
+      - ./pdf_layout.json:/app/pdf_layout.json
+      - ./column_mapping.json:/app/column_mapping.json
+    restart: unless-stopped

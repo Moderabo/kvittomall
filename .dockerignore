@@ -1,0 +1,32 @@
+# Mirrors .gitignore, plus dev/VCS/build-only files that don't belong in the image -
+# nothing here should ever be baked into a build, mirroring why git doesn't track it.
+
+.git/
+.github/
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+
+# Runtime state the pipeline owns and rebuilds itself - see paths.py/paths.ensure_dirs().
+data/
+final/
+logs/
+
+# Secrets and machine-specific config - supplied at `docker run`/compose time instead,
+# see docker-compose.yml. *.json also covers pdf_layout.json/column_mapping.json (a
+# user preference, not build-time input) for the same reason .gitignore excludes them.
+.env
+*.json
+
+# Dev-only, not needed at runtime.
+tests/
+requirements-dev.txt
+
+# Docker/VCS/editor metadata - never useful inside the image itself.
+Dockerfile
+docker-compose.yml
+.dockerignore
+.gitignore
