@@ -58,12 +58,16 @@ pip install -r requirements.txt
     - **PNG/JPG fungerar också** och väljs automatiskt om `LOGO` inte slutar på `.svg`. Använd då en tillräckligt hög upplösning för att inte bli suddig i utskrift - men räkna med betydligt större PDF-filer än med SVG.
     - **För att byta logga**: lägg filen i rotmappen och ändra `LOGO = "..."` i `config.py` till dess filnamn.
 
-3. **Kvittomallens innehåll**: vilka fält som visas på försättsbladet styrs av `PDF_SECTIONS` i [kvittomall/config.py](kvittomall/config.py) - varje etikett mappas där till en kolumn i kalkylbladet.
+3. **Kvittomallens innehåll**: vilka fält som visas på försättsbladet, i vilken ordning, och vilken kalkylbladskolumn varje etikett hämtar sitt värde från, går numera att ändra utan att röra kod - se "Redigera kvittomallens innehåll" under Webbgränssnitt nedan. `default_pdf_sections()` i [kvittomall/config.py](kvittomall/config.py) är fortfarande standardlayouten en ny installation startar med.
 
-4. **Kolumnnamn**: varje kolumnnamn verktyget letar efter (t.ex. `Tidstämpel`, `Namn`, `Summa`, `Körda mil`, `Kontonummer`, ...) är en egen namngiven konstant i `config.py`, med exakt sheet-kolumnens text som standardvärde. Om ett annat Google Form har en annan formulering på en fråga, sätt motsvarande `SHEET_COLUMN_*`-variabel i `.env` istället för att ändra i koden, t.ex.:
-    ```
-    SHEET_COLUMN_MIL="Antal mil"
-    ```
+4. **Kolumnnamn**: varje kolumnnamn verktyget letar efter (t.ex. `Tidstämpel`, `Namn`, `Summa`, `Körda mil`, `Kontonummer`, ...) är en egen namngiven konstant i `config.py`, med exakt sheet-kolumnens text som standardvärde. Om ett annat Google Form har en annan formulering på en fråga finns nu tre sätt att rätta det, i denna prioritetsordning:
+    1. **Webbgränssnittets kolumnmappning**, på "Configuration"-sidan (se "Rätta kolumnnamn" under Webbgränssnitt nedan) - enklast, och den enda som visar ett exempelvärde från kalkylbladet så man kan se att mappningen faktiskt är rätt innan den sparas.
+    2. **`SHEET_COLUMN_*`-variabel i `.env`**, t.ex.:
+        ```
+        SHEET_COLUMN_MIL="Antal mil"
+        ```
+    3. **Standardvärdet i koden** (`config.py`), om ingen av ovanstående är satt.
+
     Se toppen av `config.py` för hela listan av `SHEET_COLUMN_*`-variabler och vilken standardtext de motsvarar.
 
 5. **Bildkvalitet vid komprimering**: hur hårt uppladdade kvittobilder komprimeras innan de läggs in i PDF:en styrs av `IMAGE_QUALITY` - standardvärdet (`"normal"`) sätts i `config.py`, precis som kolumnnamnen ovan, och kan valfritt ändras direkt där eller överstyras per miljö via `.env`. Målet är alltid *läsbart*, aldrig *snyggt*. Fem lägen, från högst till lägst kvalitet:
@@ -174,6 +178,34 @@ Instrumentpanelen har samma knappar som kommandona ovan (fetch/download/process/
 **Ingen inloggning krävs** - vem som helst som når adressen (t.ex. alla på samma nätverk, om `WEBUI_HOST` lyssnar brett) kan trigga körningar och ta bort filer. Lämpligt på ett förtroendefullt hemma-/kontorsnätverk, men exponera inte porten mot internet utan att lägga till någon form av autentisering först.
 
 Den röda **"Rensa allt"**-knappen längst ner återställer `data/` och `final/` helt - databasen, alla nedladdade/bearbetade filer och alla genererade PDF:er (hanterade eller ej) raderas permanent, och samma tomma mappstruktur som vid en helt ny installation skapas igen. `logs/` rörs inte. Detta går inte att ångra, och knappen ber alltid om bekräftelse innan den kör. Motsvarande kommando finns inte i terminalen - det är medvetet bara tillgängligt via webbgränssnittet.
+
+#### Redigera kvittomallens innehåll
+
+Länken **"PDF layout"** på instrumentpanelen öppnar sidan **"Configuration"** (`/config`), som PDF-layouten och kolumnmappningen delar - de är två vyer av samma sak (vilken kolumn ger vilken information), så att fixa en mappning i den ena hänger oftast ihop med den andra. Överst i PDF-layout-delen finns en kort förklaring av vad varje kontroll gör:
+
+- **Textrutan** - etiketten som skrivs ut på PDF:en direkt före värdet (t.ex. "Datum:").
+- **Kolumn-rullistan** - vilken uppgift från kalkylbladet som fyller i värdet.
+- **Format-rullistan** - en suffix som läggs till efter värdet: `kr` för ett belopp, `mil` för en sträcka, eller `None` för vanlig text utan suffix.
+
+Försättsbladets fält kan redigeras utan att röra kod: byta vilken kolumn en etikett hämtar sitt värde från, ändra etikettens text, lägga till eller ta bort fält och rader/sektioner, samt ändra ordningen (pilarna flyttar ett fält upp/ner eller till en annan sektion). Ändringen börjar gälla direkt vid nästa `generate` - både från webbgränssnittet och terminalen, ingen omstart krävs.
+
+Varje fälts kolumn-rullista visar bara de kolumner verktyget faktiskt känner till med namn - en per inställning i kolumnmappningen längre ner på samma sida (t.ex. "Sum: Summa") - inte vilken kalkylbladskolumn som helst. En kolumn som bara finns med av submittern egen anledning (utan någon egen namngiven inställning, t.ex. en egen bekräftelseruta) går alltså inte längre att välja här; ge den ett namn i kolumnmappningen först om den ska synas på PDF:en.
+
+Tidstämpeln, vilken kolumn kvittolänkarna ligger i, och vilken kolumn styr kategorimappen kan **inte** väljas här - de avgör radens identitet, vilka bilagor som hittas, och vilken `final/`-mapp PDF:en hamnar i, inte bara vad som visas på sidan. De ändras i kolumnmappningen istället, se nästa avsnitt.
+
+Om ett fälts val är markerat "not found in last fetch" beror det på att den riktiga kolumnrubriken i kalkylbladet inte matchar det som är konfigurerat - rätta det i kolumnmappningen, inte här.
+
+Ett fält som pekar på en tom kolumn för en viss rad hoppas alltid över på just den PDF:en - alla fält behöver inte finnas ifyllda på varje rad. Om en kalkylbladskolumn däremot har ett värde men inte är kopplad till något fält alls, visas en liten ⚠-ikon direkt bredvid just det fältet på radens sida (håll muspekaren över den för en förklaring), samt en rad i loggen vid `generate` - inte ett fel, bara en påminnelse om att informationen inte kommer med på PDF:en. Varningen är per rad: en tom `Körda mil` på ett vanligt utlägg (inte reseersättning) varnar aldrig, eftersom det är helt normalt att den kolumnen är tom då.
+
+#### Rätta kolumnnamn
+
+Kolumnmappningen, längre ner på samma **"Configuration"**-sida, visar, för varje sak verktyget behöver från kalkylbladet (tidstämpel, namn, kvittolänkar, transaktionstyp, summa, datum, ...), vilken kolumnrubrik den för närvarande är kopplad till - och en rullista med de kolumnrubriker som faktiskt finns i det senast hämtade kalkylbladet att välja bland istället. Första valet i varje rullista är alltid **"(Default)"** - det lämnar inställningen orörd (den fortsätter styras av `.env` eller det inbyggda standardvärdet) istället för att peka på en specifik kolumn, vilket är rätt val för en kolumn som helt enkelt inte finns i just detta kalkylblad (t.ex. körda mil för ett utskott som aldrig ger reseersättning). Ett exempelvärde från första hämtade raden visas bredvid varje val, så man kan se att mappningen faktiskt stämmer innan den sparas - detta går inte att avgöra automatiskt, så det är upp till en själv att kontrollera.
+
+Tidstämpel, kvittolänkar och transaktionstyp visas i en egen sektion med en tydlig varning: ändras någon av dem efter att rader redan finns i systemet hittas inte de gamla raderna längre under sin nya identitet vid nästa `fetch` - redan nedladdade/bearbetade filer och PDF:er raderas inte, men blir övergivna (inte längre kopplade till något) tills de bearbetas om under den nya mappningen. Samma risk finns redan idag vid manuell redigering av `.env` - varningen är ny, risken är det inte.
+
+Ändringar börjar gälla direkt, precis som PDF-layouten ovan - ingen omstart av `kvittomall webui` eller terminalkommandona krävs.
+
+Om PDF-layouten redan har sparats en gång (även bara för att ändra ordningen på fälten) har varje fält frusits till den kolumn det då pekade på - det är inte längre kopplat live till t.ex. `DATUM`-inställningen. Att rätta en felaktig mappning här flyttar därför automatiskt med sig alla redan sparade fält som pekade på den gamla kolumnen, så en tidigare sparad layout inte fortsätter peka på fel kolumn i tysthet. Ett fält som pekar på en helt egen, fritt vald kolumn (som inte motsvarar någon av inställningarna ovan) påverkas aldrig av detta.
 
 ## Utveckling
 

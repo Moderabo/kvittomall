@@ -23,6 +23,11 @@ FINAL_DIR = os.path.join(ROOT, "final")
 LOGS_DIR = os.path.join(ROOT, "logs")
 LOGO_PATH = os.path.join(ROOT, LOGO)
 
+# A user preference (the PDF cover-page layout), not pipeline-generated state - lives
+# alongside .env/the logo at the repo root, deliberately outside DATA_DIR/FINAL_DIR so
+# clean_all() below never touches it.
+PDF_LAYOUT_PATH = os.path.join(ROOT, "pdf_layout.json")
+
 
 def ensure_dirs() -> None:
     for path in (DATA_DIR, DOWNLOADS_DIR, PROCESSED_DIR, FINAL_DIR, LOGS_DIR):

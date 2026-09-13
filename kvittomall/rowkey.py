@@ -8,8 +8,7 @@ import os
 import re
 import sqlite3
 
-from kvittomall import db
-from kvittomall.config import NAME_COLUMN, RECEIPT_LINKS_COLUMN, TIMESTAMP_COLUMN, TRANSACTION_TYPE_COLUMN
+from kvittomall import config, db
 from kvittomall.paths import DOWNLOADS_DIR, FINAL_DIR, PROCESSED_DIR
 
 
@@ -23,7 +22,7 @@ def row_key(row: dict) -> str | None:
     """The stable identity of a submission: its raw timestamp. Stable even if the
     submitter's name is corrected later.
     """
-    timestamp = row.get(TIMESTAMP_COLUMN, "").strip()
+    timestamp = row.get(config.TIMESTAMP_COLUMN, "").strip()
     return timestamp or None
 
 
@@ -31,8 +30,8 @@ def base_filename(row: dict) -> str | None:
     """The human-readable filename stem used for this row's files on disk, e.g.
     "2023-10-27_12.30.00_John-Doe". Returns None if required fields are missing.
     """
-    timestamp_raw = row.get(TIMESTAMP_COLUMN, "")
-    name_raw = row.get(NAME_COLUMN, "")
+    timestamp_raw = row.get(config.TIMESTAMP_COLUMN, "")
+    name_raw = row.get(config.NAME_COLUMN, "")
     if not timestamp_raw or not name_raw:
         return None
 
@@ -50,12 +49,12 @@ def receipt_links(row: dict) -> list[str]:
     shared by every stage/view that needs to know how many attachments a row *should*
     have (as opposed to how many happen to be in the database already).
     """
-    return [link.strip() for link in row.get(RECEIPT_LINKS_COLUMN, "").split(",") if link.strip()]
+    return [link.strip() for link in row.get(config.RECEIPT_LINKS_COLUMN, "").split(",") if link.strip()]
 
 
 def links_hash(row: dict) -> str:
     """Changes only when the receipt links change -> invalidates download/process state."""
-    return _hash(row.get(RECEIPT_LINKS_COLUMN, ""))
+    return _hash(row.get(config.RECEIPT_LINKS_COLUMN, ""))
 
 
 def content_hash(row: dict) -> str:
@@ -96,7 +95,7 @@ def sync_row(conn: sqlite3.Connection, row: dict) -> str | None:
 
     db.upsert_row(
         conn, key, new_base,
-        row.get(TRANSACTION_TYPE_COLUMN, ""),
+        row.get(config.TRANSACTION_TYPE_COLUMN, ""),
         content_hash(row),
         links_hash(row),
     )

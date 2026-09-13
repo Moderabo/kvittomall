@@ -42,10 +42,18 @@
     .badge.not_synced { background: #f0f0f0; color: #777; }
     .badge.handled { background: #e8eaf6; color: #3949ab; }
     .empty { color: #777; padding: 1rem 0; }
+    nav { margin-bottom: 1rem; }
+    nav a { color: #555; text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <h1>kvittomall</h1>
+  <nav>
+    <a href="{{ url_for('config_page') }}#pdf-layout">PDF layout &rarr;</a>
+    &middot;
+    <a href="{{ url_for('config_page') }}#column-mapping">Column mapping &rarr;</a>
+  </nav>
 
   {% for stage in stages %}
   <div class="stage" data-stage="{{ stage }}">

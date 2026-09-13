@@ -1,5 +1,6 @@
-"""Stage 4: build each row's final PDF - a cover page from PDF_SECTIONS followed by
-its receipt attachments.
+"""Stage 4: build each row's final PDF - a cover page from the current PDF layout
+(pdf_layout.get_pdf_sections() - config.default_pdf_sections() by default, or a web-UI-
+edited version of it) followed by its receipt attachments.
 
 final/<category>/ holds every generated PDF that hasn't been reviewed yet - it's
 cumulative, not a "latest batch" folder. A row only leaves it when a human explicitly
@@ -26,9 +27,9 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from svglib.svglib import svg2rlg
 
-from kvittomall import db
+from kvittomall import config, db, pdf_layout
 from kvittomall.atomic import atomic_write
-from kvittomall.config import HANDLED_DIRNAME, PDF_SECTIONS, PDF_TITLE_PREFIX, TRANSACTION_TYPE_COLUMN, category_for
+from kvittomall.config import HANDLED_DIRNAME, PDF_TITLE_PREFIX, category_for
 from kvittomall.logging_setup import run_timer, setup_logging
 from kvittomall.paths import FINAL_DIR, LOGO_PATH
 from kvittomall.progress import ProgressBar
@@ -108,7 +109,7 @@ def _draw_page_header(c: canvas.Canvas, title: str) -> None:
 
 
 def _page_title(row: dict) -> str:
-    return f"{PDF_TITLE_PREFIX}{row.get(TRANSACTION_TYPE_COLUMN, '')}"
+    return f"{PDF_TITLE_PREFIX}{row.get(config.TRANSACTION_TYPE_COLUMN, '')}"
 
 
 def _build_text_page(row: dict) -> PdfReader:
@@ -119,7 +120,7 @@ def _build_text_page(row: dict) -> PdfReader:
     y = PAGE_HEIGHT - 5 * cm
     max_text_width = PAGE_WIDTH - (2 * MARGIN_SIDE)
 
-    for section in PDF_SECTIONS:
+    for section in pdf_layout.get_pdf_sections():
         non_empty = []
         for f in section.fields:
             raw = str(row.get(f.column, "")).strip()
@@ -331,6 +332,12 @@ def run(only: str | None = None) -> None:
         with ProgressBar(len(plan), "Generating") as bar:
             for row_key, row, dest, attachment_paths, reason, stale_path, handled_value in plan:
                 logger.info(f"Generating {dest} ({reason})")
+                unmapped = pdf_layout.unmapped_columns_with_data(row)
+                if unmapped:
+                    logger.warning(
+                        f"Row {row_key}: column(s) with data not mapped to any PDF field, "
+                        f"won't appear on the generated PDF: {', '.join(unmapped)}"
+                    )
                 try:
                     _generate_one(conn, row_key, row, dest, attachment_paths, handled_value)
                     if stale_path:

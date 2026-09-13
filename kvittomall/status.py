@@ -5,8 +5,8 @@ run lock and never writes anything.
 
 import os
 
-from kvittomall import db
-from kvittomall.config import NAME_COLUMN, TIMESTAMP_COLUMN, category_for
+from kvittomall import config, db, pdf_layout
+from kvittomall.config import category_for
 from kvittomall.paths import FINAL_DIR
 from kvittomall.rowkey import content_hash, receipt_links
 from kvittomall.sheet import read_rows
@@ -47,16 +47,18 @@ def row_status(conn, csv_row: dict) -> dict:
     processed_ok} - one per receipt link the row currently has, whether or not it's been
     downloaded/processed yet), kind ("not_synced" | "valid" | "handled" | "repair" |
     "error" | "pending"), state (human-readable reason), location ("new" | "handled" |
-    "-"), final_pdf_path, and final_pdf_exists (a direct, fail-safe disk check - unlike
+    "-"), final_pdf_path, final_pdf_exists (a direct, fail-safe disk check - unlike
     final_pdf_path, which is just the DB's recorded location and stays set even after the
-    file is removed).
+    file is removed), and unmapped_columns (CSV columns with data that aren't mapped to
+    any PDF field right now - see pdf_layout.unmapped_columns_with_data()).
     """
-    key = csv_row.get(TIMESTAMP_COLUMN, "").strip() or None
+    key = csv_row.get(config.TIMESTAMP_COLUMN, "").strip() or None
+    unmapped_columns = pdf_layout.unmapped_columns_with_data(csv_row)
     db_row = db.get_row(conn, key) if key else None
     if db_row is None:
         return {
             "row_key": key,
-            "name": csv_row.get(NAME_COLUMN, ""),
+            "name": csv_row.get(config.NAME_COLUMN, ""),
             "category": category_for(csv_row),
             "attachments": _attachment_details(conn, key, csv_row) if key else [],
             "kind": "not_synced",
@@ -64,6 +66,7 @@ def row_status(conn, csv_row: dict) -> dict:
             "location": "-",
             "final_pdf_path": None,
             "final_pdf_exists": False,
+            "unmapped_columns": unmapped_columns,
         }
 
     final_pdf_exists = bool(db_row["final_pdf_path"]) and os.path.exists(
@@ -92,7 +95,7 @@ def row_status(conn, csv_row: dict) -> dict:
 
     return {
         "row_key": key,
-        "name": csv_row.get(NAME_COLUMN, ""),
+        "name": csv_row.get(config.NAME_COLUMN, ""),
         "category": category_for(csv_row),
         "attachments": _attachment_details(conn, key, csv_row),
         "kind": kind,
@@ -100,6 +103,7 @@ def row_status(conn, csv_row: dict) -> dict:
         "location": _location(db_row["final_pdf_path"], bool(db_row["handled"])),
         "final_pdf_path": db_row["final_pdf_path"],
         "final_pdf_exists": final_pdf_exists,
+        "unmapped_columns": unmapped_columns,
     }
 
 

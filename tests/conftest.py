@@ -6,17 +6,37 @@ import (see logging_setup.setup_logging()). Redirecting paths.LOGS_DIR here - be
 any test file gets to import one of those modules - keeps the test suite from writing
 into the real project's logs/ on every run. This only works because pytest always
 loads conftest.py before collecting/importing test modules.
+
+The same reasoning applies to paths.PDF_LAYOUT_PATH and config._COLUMN_MAPPING_PATH -
+both point at real files in the repo root by default (pdf_layout.json,
+column_mapping.json), read live by every call to pdf_layout.get_pdf_sections()/
+config.TIMESTAMP_COLUMN-style attributes, not just by the tests that exercise those
+files directly. A real file left there (e.g. from actually running `kvittomall webui`
+and using /pdf-layout or /column-mapping) would otherwise silently change what most of
+the suite resolves a column name or the cover-page layout to - not a hypothetical, this
+is exactly what happened once those pages existed to create such a file. Tests that
+specifically want to exercise the override-file behavior already monkeypatch their own
+tmp_path on top of this default.
 """
 
+import os
 import tempfile
 
-from kvittomall import paths
+from kvittomall import config, paths
 
 paths.LOGS_DIR = tempfile.mkdtemp(prefix="kvittomall-test-logs-")
+paths.PDF_LAYOUT_PATH = os.path.join(tempfile.mkdtemp(prefix="kvittomall-test-pdflayout-"), "pdf_layout.json")
+config._COLUMN_MAPPING_PATH = os.path.join(tempfile.mkdtemp(prefix="kvittomall-test-colmap-"), "column_mapping.json")
 
 import pytest  # noqa: E402
 
-from kvittomall import db  # noqa: E402
+
+# pdf_layout imported here, right after the PDF_LAYOUT_PATH patch above and before any
+# test file gets a chance to import it - it does `from kvittomall.paths import
+# PDF_LAYOUT_PATH` at module level, which binds its own copy of the path once, at
+# import time. Importing it any later (e.g. only implicitly, from within a test module)
+# would bind that copy to the real repo path instead of this test one.
+from kvittomall import db, pdf_layout  # noqa: E402, F401
 
 
 @pytest.fixture

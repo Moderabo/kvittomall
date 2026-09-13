@@ -13,9 +13,8 @@ from datetime import datetime
 
 import requests
 
-from kvittomall import google_api
+from kvittomall import config, google_api
 from kvittomall.atomic import atomic_write
-from kvittomall.config import TIMESTAMP_COLUMN
 from kvittomall.logging_setup import run_timer, setup_logging
 from kvittomall.paths import RESPONSES_CSV
 
@@ -44,11 +43,11 @@ def _validate_chronological(rows: list[dict]) -> None:
     previous_ts = None
     previous_raw = None
     for i, row in enumerate(rows):
-        raw = row.get(TIMESTAMP_COLUMN, "")
+        raw = row.get(config.TIMESTAMP_COLUMN, "")
         try:
             ts = datetime.strptime(raw, TIMESTAMP_FORMAT)
         except ValueError:
-            logger.warning(f"Row {i}: cannot parse '{TIMESTAMP_COLUMN}' value '{raw}'")
+            logger.warning(f"Row {i}: cannot parse '{config.TIMESTAMP_COLUMN}' value '{raw}'")
             continue
         if previous_ts is not None and ts < previous_ts:
             logger.warning(f"Row {i}: timestamps out of order ('{previous_raw}' then '{raw}')")

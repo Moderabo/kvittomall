@@ -16,16 +16,13 @@ import threading
 from datetime import datetime
 from typing import Callable
 
-from flask import Flask, abort, jsonify, render_template, send_file
+from flask import Flask, abort, jsonify, render_template, request, send_file
 
-from kvittomall import db, status
+from kvittomall import config, db, pdf_layout, status
 from kvittomall.cli import (
     PIPELINE_ORDER, REMOVE_TARGETS, SCOPABLE_STAGES, STAGES, _run_pipeline_stages, remove_all_files,
 )
-from kvittomall.config import (
-    COMMITTEE_COLUMN, DATE_COLUMN, EVENT_COLUMN, MIL_COLUMN, RECEIPT_LINKS_COLUMN,
-    SPECIFICATION_COLUMN, SUM_COLUMN, TIMESTAMP_COLUMN, WEBUI_HOST, WEBUI_PORT,
-)
+from kvittomall.config import WEBUI_HOST, WEBUI_PORT
 from kvittomall.lock import AlreadyRunningError, run_lock
 from kvittomall.paths import DOWNLOADS_DIR, ensure_dirs, FINAL_DIR, PROCESSED_DIR
 from kvittomall.paths import clean_all as clean_all_data
@@ -40,19 +37,23 @@ PROCESSED_IMAGE_EXTENSIONS = (".jpg", ".jpeg")
 # rather than a thumbnail that would likely just show up broken.
 DOWNLOAD_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp")
 
-# Curated columns shown in the entries list, alongside name/category/status - each a
-# tuple of column(s) to try in order (pulled through config.py's constants, never a
-# hardcoded sheet header, so a deployment that overrides SHEET_COLUMN_* in .env still
-# shows the right data). "Sum" falls back to MIL_COLUMN since a mileage-reimbursement
-# row (Milersättning) has no Summa of its own - only a distance - so showing whichever
-# of the two is actually filled in is more useful than always showing "-" for those rows.
-ENTRIES_LIST_COLUMNS = [
-    ("Date", (DATE_COLUMN,)),
-    ("Sum", (SUM_COLUMN, MIL_COLUMN)),
-    ("Committee", (COMMITTEE_COLUMN,)),
-    ("Event", (EVENT_COLUMN,)),
-    ("Specification", (SPECIFICATION_COLUMN,)),
-]
+def entries_list_columns() -> list[tuple[str, tuple[str, ...]]]:
+    """Curated columns shown in the entries list, alongside name/category/status - each
+    a tuple of column(s) to try in order (pulled through config.py's constants, never a
+    hardcoded sheet header, so a deployment that overrides SHEET_COLUMN_* in .env or
+    /column-mapping still shows the right data). "Sum" falls back to MIL_COLUMN since a
+    mileage-reimbursement row (Milersättning) has no Summa of its own - only a distance
+    - so showing whichever of the two is actually filled in is more useful than always
+    showing "-" for those rows. A function, not a cached list, for the same live-reload
+    reason as config.py's __getattr__ - these must resolve fresh on every request.
+    """
+    return [
+        ("Date", (config.DATE_COLUMN,)),
+        ("Sum", (config.SUM_COLUMN, config.MIL_COLUMN)),
+        ("Committee", (config.COMMITTEE_COLUMN,)),
+        ("Event", (config.EVENT_COLUMN,)),
+        ("Specification", (config.SPECIFICATION_COLUMN,)),
+    ]
 
 
 def _first_nonempty(row: dict, columns: tuple[str, ...]) -> str:
@@ -175,9 +176,52 @@ def _worker_clean_all() -> None:
     _run_and_record("clean-all", body)
 
 
+def _validate_pdf_layout(data) -> str | None:
+    """Returns an error message, or None if `data` is a valid {"sections": [...]}
+    payload - checked server-side since the posted JSON could come from anything, not
+    just the page's own JS (which only ever offers valid choices in its dropdowns).
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("sections"), list):
+        return "Malformed payload."
+    for section in data["sections"]:
+        if not isinstance(section, dict) or not isinstance(section.get("fields"), list):
+            return "Malformed section."
+        for f in section["fields"]:
+            if not isinstance(f, dict) or not isinstance(f.get("label"), str) or not isinstance(f.get("column"), str):
+                return "Every field needs a label and a column."
+            if f["column"] in pdf_layout.non_display_columns():
+                return (
+                    f"'{f['column']}' can't be mapped here - it determines row identity, "
+                    "attachment discovery, or the category folder, not just PDF display."
+                )
+            if f.get("formatter") not in pdf_layout.FORMATTERS:
+                return f"Unknown formatter '{f.get('formatter')}'."
+    return None
+
+
+def _validate_column_mapping(data, discovered_columns: set[str]) -> str | None:
+    """Returns an error message, or None if `data` is a valid {env_var: column} payload.
+    Checked server-side for the same reason as _validate_pdf_layout() above.
+    """
+    if not isinstance(data, dict):
+        return "Malformed payload."
+    valid_env_vars = {env_var for env_var, _, _, _ in config.column_settings()}
+    for env_var, value in data.items():
+        if env_var not in valid_env_vars:
+            return f"Unknown setting '{env_var}'."
+        if not isinstance(value, str):
+            return f"'{env_var}' must be a string."
+        # Only checked once a sheet has actually been fetched - before that there's
+        # nothing to validate against, and the user may be configuring this ahead of
+        # the first fetch based on knowledge of the Form.
+        if value.strip() and discovered_columns and value.strip() not in discovered_columns:
+            return f"'{value}' isn't a column in the last fetched sheet."
+    return None
+
+
 def _find_csv_row(row_key: str) -> dict | None:
     for row in read_rows():
-        if row.get(TIMESTAMP_COLUMN, "").strip() == row_key:
+        if row.get(config.TIMESTAMP_COLUMN, "").strip() == row_key:
             return row
     return None
 
@@ -210,7 +254,7 @@ def _entry_view(row_key: str, conn) -> dict | None:
     info["attachments"] = view_attachments
     info["fields"] = [
         (column, _swedish_decimal(str(value).strip())) for column, value in csv_row.items()
-        if column != RECEIPT_LINKS_COLUMN and str(value).strip()
+        if column != config.RECEIPT_LINKS_COLUMN and str(value).strip()
     ]
     return info
 
@@ -247,15 +291,16 @@ def create_app() -> Flask:
     def index():
         with _state_lock:
             running, results = _running, dict(_results)
+        list_columns = entries_list_columns()
         with db.connect() as conn:
             rows_info = []
             for row in read_rows():
                 info = status.row_status(conn, row)
                 info["extra"] = [
-                    _swedish_decimal(_first_nonempty(row, columns)) for _, columns in ENTRIES_LIST_COLUMNS
+                    _swedish_decimal(_first_nonempty(row, columns)) for _, columns in list_columns
                 ]
                 rows_info.append(info)
-        extra_headers = [label for label, _ in ENTRIES_LIST_COLUMNS]
+        extra_headers = [label for label, _ in list_columns]
         return render_template(
             "index.html", stages=PIPELINE_ORDER, running=running, results=results,
             entries=rows_info, extra_headers=extra_headers,
@@ -333,6 +378,95 @@ def create_app() -> Flask:
             return jsonify(error="unknown remove target"), 404
         started = _start(f"remove-{what}:{row_key}", _worker_remove, what, row_key)
         return jsonify(started=started)
+
+    @app.get("/config")
+    def config_page():
+        """The PDF layout and column mapping editors share one page (not just adjacent
+        dashboard links) since they're two views of the same underlying thing - which
+        column feeds what - and fixing a mapping in one place routinely means checking
+        or fixing the other right after. Each keeps its own POST endpoint (/pdf-layout,
+        /column-mapping) and its own save button; only the GET rendering is combined,
+        computing the shared read_rows()/discovered-columns data once instead of twice.
+        """
+        rows = read_rows()
+        discovered_columns_set = {col for row in rows for col in row.keys()}
+        discovered_columns = sorted(discovered_columns_set)
+
+        non_display = pdf_layout.non_display_columns()
+        # Every choice a PDF-layout field can be mapped to is one of the named
+        # SHEET_COLUMN_* settings (config.column_settings()), not an arbitrary raw CSV
+        # column - so the dropdown always reads "Label: current column" (e.g. "Name:
+        # Namn") instead of a bare header string, and a setting whose current value
+        # isn't in the last-fetched sheet is flagged right on its own option, not just
+        # left for the user to guess at. non_display_columns() (TIMESTAMP/RECEIPT_LINKS/
+        # TRANSACTION_TYPE) stays excluded, same reason as before - fix those via
+        # column mapping, they're never meant to be displayed on the cover page at all.
+        column_choices = [
+            {
+                "env_var": env_var,
+                "label": label,
+                "value": current,
+                "not_found": bool(current) and current not in discovered_columns_set,
+            }
+            for env_var, label, current, _is_structural in config.column_settings()
+            if current not in non_display
+        ]
+
+        settings = [
+            {
+                **row,
+                "not_found": bool(row["current"]) and row["current"] not in discovered_columns_set,
+            }
+            for row in config.column_mapping_rows()
+        ]
+
+        return render_template(
+            "config.html",
+            sections=pdf_layout.load_sections_data(),
+            column_choices=column_choices,
+            formatters=list(pdf_layout.FORMATTERS.keys()),
+            settings=settings,
+            discovered_columns=discovered_columns,
+            sample_row=rows[0] if rows else {},
+        )
+
+    @app.post("/pdf-layout")
+    def save_pdf_layout():
+        data = request.get_json(silent=True)
+        error = _validate_pdf_layout(data)
+        if error:
+            return jsonify(error=error), 400
+        pdf_layout.save_sections_data(data["sections"])
+        return jsonify(ok=True)
+
+    @app.post("/column-mapping")
+    def save_column_mapping():
+        data = request.get_json(silent=True)
+        discovered_columns = {col for row in read_rows() for col in row.keys()}
+        error = _validate_column_mapping(data, discovered_columns)
+        if error:
+            return jsonify(error=error), 400
+
+        # Captured before/after the actual save (both live via config.column_settings())
+        # so an already-saved PDF layout's fields can be migrated off whatever a
+        # changed setting used to resolve to - otherwise they'd keep pointing at the
+        # old, now-wrong column forever, since pdf_layout.json stores plain resolved
+        # strings, not live references back to these settings. See
+        # pdf_layout.migrate_columns()'s docstring for why this is needed at all.
+        old_resolved = {env_var: current for env_var, _, current, _ in config.column_settings()}
+        overrides = {env_var: value.strip() for env_var, value in data.items() if value.strip()}
+        config.save_column_overrides(overrides)
+        new_resolved = {env_var: current for env_var, _, current, _ in config.column_settings()}
+
+        old_to_new = {
+            old_resolved[env_var]: new_resolved[env_var]
+            for env_var in old_resolved
+            if old_resolved[env_var] != new_resolved[env_var]
+        }
+        if old_to_new:
+            pdf_layout.migrate_columns(old_to_new)
+
+        return jsonify(ok=True)
 
     return app
 

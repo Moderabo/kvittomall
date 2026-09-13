@@ -7,7 +7,7 @@ from pypdf import PdfReader
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
-from kvittomall import db, pdf_gen
+from kvittomall import db, pdf_gen, pdf_layout
 
 # --- rendering (pure bytes-in, bytes-out - no DB, no filesystem state) ---
 
@@ -365,6 +365,35 @@ def test_run_generates_new_rows_into_correct_categories(monkeypatch, conn, final
     db_rows = db.list_rows(conn)
     assert len(db_rows) == 2
     assert all(r["status"] == "generated" for r in db_rows)
+
+
+def test_run_logs_warning_for_unmapped_column_with_data(monkeypatch, conn, final_dir, caplog):
+    # _row()'s "Godkännande" field (a self-attestation checkbox, per CLAUDE.md) is never
+    # mapped to any PDF field by the default layout - exactly the case that should warn.
+    rows = [_row("2026-01-01 10.00.00", "Anna Andersson")]
+    monkeypatch.setattr(pdf_gen, "read_rows", lambda: rows)
+
+    with caplog.at_level(logging.WARNING, logger=pdf_gen.logger.name):
+        pdf_gen.run()
+
+    assert "Godkännande" in caplog.text
+
+
+def test_run_uses_custom_pdf_layout(monkeypatch, conn, final_dir, tmp_path):
+    monkeypatch.setattr(pdf_layout, "PDF_LAYOUT_PATH", str(tmp_path / "pdf_layout.json"))
+    pdf_layout.save_sections_data([
+        {"fields": [{"label": "CustomLabel:", "column": "Namn", "formatter": "plain"}]},
+    ])
+    rows = [_row("2026-01-01 10.00.00", "Anna Andersson")]
+    monkeypatch.setattr(pdf_gen, "read_rows", lambda: rows)
+
+    pdf_gen.run()
+
+    dest = final_dir / "privat" / "2026-01-01_10.00.00_Anna-Andersson.pdf"
+    text = PdfReader(str(dest)).pages[0].extract_text()
+    assert "CustomLabel:" in text
+    assert "Anna Andersson" in text
+    assert "Datum:" not in text  # the default layout's fields are gone now
 
 
 def test_run_is_a_no_op_when_nothing_changed(monkeypatch, conn, final_dir):
