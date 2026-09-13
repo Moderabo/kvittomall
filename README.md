@@ -45,6 +45,27 @@ pip install -r requirements.txt
 
 `requirements.txt` har fasta versionsnummer för att alla ska köra exakt samma, testade paket.
 
+### Alternativ: Docker
+
+Slipper man installera Python/`libmagic` lokalt genom att köra allt i en container istället - `Dockerfile`/`docker-compose.yml` i repot bygger en image med allt förinstallerat.
+
+```sh
+git clone https://github.com/Moderabo/kvittomall.git
+cd kvittomall
+
+cp .env.example .env               # fyll i SHEET_ID/SHEET_GID som vanligt, se Konfiguration nedan
+mkdir -p secrets                   # lägg din service account-nyckel här, sätt sedan
+                                    # GOOGLE_SERVICE_ACCOUNT_FILE=/app/secrets/<filnamn>.json i .env
+
+docker compose up -d --build
+```
+
+Webbgränssnittet finns sedan på `http://localhost:5000` (eller den port du satt `WEBUI_PORT` till i `.env` - `docker-compose.yml` läser samma fil både för att skicka in miljövariabler i containern och för att avgöra vilken värdport som mappas). Ett enskilt kommando istället för webbgränssnittet körs som `docker compose run --rm kvittomall fetch` (byt `fetch` mot vilket kommando som helst, t.ex. `status` eller `run`).
+
+`docker-compose.yml` binder `data/`, `final/`, `logs/`, `secrets/` (skrivskyddad) samt hela mappen `config/` (där `/config`-sidans sparade PDF-layout/kolumnmappning hamnar, se `paths.py`) till motsvarande sökvägar i containern, så inget av det här försvinner mellan omstarter. `config/` binds som en hel mapp och inte som enskilda filer, av en konkret anledning: att bindmounta en enskild fil direkt hade fått varje sparning från webbgränssnittet att krascha (appen skriver dessa filer atomiskt via en temp-fil som sedan byter namn till den riktiga, och kärnan vägrar byta namn rakt över en aktiv bindmount-punkt) - verifierat, inte antaget. Med hela mappen bunden fungerar det direkt utan några förberedande steg.
+
+Containern kör som root - en medveten avvägning för enkelhetens skull (samma sorts avvägning som webbgränssnittets avsaknad av inloggning, se Webbgränssnitt nedan), men det betyder att filer som skapas under `data/`/`final/`/`logs/` på värdmaskinen ägs av root, inte din vanliga användare - `sudo` kan behövas för att titta i eller ta bort dem direkt från värden, om du någon gång behöver det.
+
 ## Konfiguration
 
 1. **`.env`-fil** i projektets rotmapp, med Google Sheet-uppgifterna. [.env.example](.env.example) listar alla tillgängliga variabler (med sina standardvärden utkommenterade) och kan användas som utgångspunkt - kopiera den till `.env` och fyll i det som behövs:
@@ -171,11 +192,11 @@ Som ett alternativ till kommandona ovan finns en lokal webbsida med samma funkti
 python -m kvittomall webui
 ```
 
-Öppna sedan `http://127.0.0.1:5000` i webbläsaren. Verktyget lyssnar som standard på alla nätverksgränssnitt (inte bara den egna maskinen), så det går även att nå från en annan dator på samma nätverk via `http://<serverns-ip>:5000` - praktiskt om verktyget körs på en server/VM. Adress och port kan ändras via `WEBUI_HOST`/`WEBUI_PORT` i `.env`, se [.env.example](.env.example).
+Öppna sedan `http://127.0.0.1:5000` i webbläsaren. Verktyget lyssnar som standard bara på den egna maskinen (`127.0.0.1`) - i linje med att detta är tänkt som ett lokalt verktyg man startar, använder och stänger ner igen, inte en server som ska stå exponerad. Körs verktyget på en server/VM och ska nås från en annan dator (t.ex. över nätverket eller via SSH till maskinen), sätt `WEBUI_HOST="0.0.0.0"` i `.env` för att lyssna på alla nätverksgränssnitt istället - då nås det via `http://<serverns-ip>:5000`. Adress och port kan ändras via `WEBUI_HOST`/`WEBUI_PORT` i `.env`, se [.env.example](.env.example).
 
 Instrumentpanelen har samma knappar som kommandona ovan (fetch/download/process/generate/run/markera hanterat), och en sorterbar, filtrerbar lista över alla rader direkt under knapparna - klicka på kolumnrubrikerna för att sortera, eller skriv i filterfälten under varje rubrik för att bara visa matchande rader (flera filter kombineras - t.ex. ett utskott och status "handled" samtidigt). Klicka på en rad för att se dess kvitton, bearbetade bilder, färdiga PDF och alla andra ifyllda fält från kalkylbladet, samt köra/ta bort filer för/markera hanterat på just den raden.
 
-**Ingen inloggning krävs** - vem som helst som når adressen (t.ex. alla på samma nätverk, om `WEBUI_HOST` lyssnar brett) kan trigga körningar och ta bort filer. Lämpligt på ett förtroendefullt hemma-/kontorsnätverk, men exponera inte porten mot internet utan att lägga till någon form av autentisering först.
+**Ingen inloggning krävs** - med standardinställningen (`127.0.0.1`) spelar det mindre roll, eftersom bara den egna maskinen kan nå adressen. Men om `WEBUI_HOST` vidgas till `0.0.0.0` kan vem som helst som når adressen, t.ex. alla på samma nätverk, trigga körningar och ta bort filer - lämpligt på ett förtroendefullt hemma-/kontorsnätverk, men exponera aldrig porten mot internet utan att lägga till någon form av autentisering först.
 
 Den röda **"Rensa allt"**-knappen längst ner återställer `data/` och `final/` helt - databasen, alla nedladdade/bearbetade filer och alla genererade PDF:er (hanterade eller ej) raderas permanent, och samma tomma mappstruktur som vid en helt ny installation skapas igen. `logs/` rörs inte. Detta går inte att ångra, och knappen ber alltid om bekräftelse innan den kör. Motsvarande kommando finns inte i terminalen - det är medvetet bara tillgängligt via webbgränssnittet.
 

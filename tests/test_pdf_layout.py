@@ -129,3 +129,36 @@ def test_migrate_columns_leaves_freeform_fields_untouched(tmp_path, monkeypatch)
 
     assert changed is False
     assert pdf_layout.load_sections_data()[0]["fields"][0]["column"] == "Godkännande"
+
+
+def test_load_sections_data_migrates_a_file_from_the_legacy_repo_root_location(tmp_path, monkeypatch):
+    # Older versions stored pdf_layout.json directly at the repo root - moving it under
+    # paths.CONFIG_DIR (see paths.py) must not silently forget anyone's existing layout.
+    legacy_path = tmp_path / "legacy" / "pdf_layout.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text('{"sections": [{"fields": [{"label": "X:", "column": "Y", "formatter": "plain"}]}]}')
+    new_path = tmp_path / "config" / "pdf_layout.json"
+    monkeypatch.setattr(pdf_layout, "_LEGACY_PDF_LAYOUT_PATH", str(legacy_path))
+    monkeypatch.setattr(pdf_layout, "PDF_LAYOUT_PATH", str(new_path))
+
+    data = pdf_layout.load_sections_data()
+
+    assert data[0]["fields"][0]["column"] == "Y"
+    assert new_path.exists()
+    assert not legacy_path.exists()
+
+
+def test_migrate_legacy_file_never_overwrites_an_existing_new_file(tmp_path, monkeypatch):
+    legacy_path = tmp_path / "legacy" / "pdf_layout.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text('{"sections": [{"fields": [{"label": "Old:", "column": "Old", "formatter": "plain"}]}]}')
+    new_path = tmp_path / "config" / "pdf_layout.json"
+    new_path.parent.mkdir()
+    new_path.write_text('{"sections": [{"fields": [{"label": "New:", "column": "New", "formatter": "plain"}]}]}')
+    monkeypatch.setattr(pdf_layout, "_LEGACY_PDF_LAYOUT_PATH", str(legacy_path))
+    monkeypatch.setattr(pdf_layout, "PDF_LAYOUT_PATH", str(new_path))
+
+    data = pdf_layout.load_sections_data()
+
+    assert data[0]["fields"][0]["column"] == "New"
+    assert legacy_path.exists()  # untouched, not deleted just because it wasn't used

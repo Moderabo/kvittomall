@@ -99,6 +99,40 @@ def test_column_mapping_rows_treats_empty_override_as_not_overridden(tmp_path, m
     assert rows["SHEET_COLUMN_SUM"]["overridden"] is False
 
 
+def test_column_overrides_migrates_a_file_from_the_legacy_repo_root_location(tmp_path, monkeypatch):
+    # Older versions stored column_mapping.json directly at _ROOT - moving it under a
+    # "config" subdirectory (see the comment above _COLUMN_MAPPING_PATH) must not
+    # silently forget an override someone already saved there.
+    legacy_path = tmp_path / "legacy" / "column_mapping.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text('{"SHEET_COLUMN_TIMESTAMP": "Tidsstämpel"}')
+    new_path = tmp_path / "config" / "column_mapping.json"
+    monkeypatch.setattr(config, "_LEGACY_COLUMN_MAPPING_PATH", str(legacy_path))
+    monkeypatch.setattr(config, "_COLUMN_MAPPING_PATH", str(new_path))
+
+    overrides = config._column_overrides()
+
+    assert overrides == {"SHEET_COLUMN_TIMESTAMP": "Tidsstämpel"}
+    assert new_path.exists()
+    assert not legacy_path.exists()
+
+
+def test_migrate_legacy_override_file_never_overwrites_an_existing_new_file(tmp_path, monkeypatch):
+    legacy_path = tmp_path / "legacy" / "column_mapping.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text('{"SHEET_COLUMN_TIMESTAMP": "OldValue"}')
+    new_path = tmp_path / "config" / "column_mapping.json"
+    new_path.parent.mkdir()
+    new_path.write_text('{"SHEET_COLUMN_TIMESTAMP": "NewValue"}')
+    monkeypatch.setattr(config, "_LEGACY_COLUMN_MAPPING_PATH", str(legacy_path))
+    monkeypatch.setattr(config, "_COLUMN_MAPPING_PATH", str(new_path))
+
+    overrides = config._column_overrides()
+
+    assert overrides == {"SHEET_COLUMN_TIMESTAMP": "NewValue"}
+    assert legacy_path.exists()  # untouched, not deleted just because it wasn't used
+
+
 def test_category_for_known_value():
     assert config.category_for({"Transaktionstyp": "Privat utlägg"}) == "privat"
     assert config.category_for({"Transaktionstyp": "Sektionskort"}) == "sektionskort"

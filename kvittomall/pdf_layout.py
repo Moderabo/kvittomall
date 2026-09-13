@@ -3,7 +3,8 @@ in what order - editable from the web UI, unlike the rest of this pipeline's beh
 
 config.py's default_pdf_sections() is still the compiled-in default; once a user customizes
 anything via the web UI, the layout actually used to generate a PDF lives in a small
-JSON file (paths.PDF_LAYOUT_PATH) instead, since a web form can't hand back Python code.
+JSON file (paths.PDF_LAYOUT_PATH, under paths.CONFIG_DIR) instead, since a web form
+can't hand back Python code.
 Every value the web UI sets - label, source column, formatter - has an unambiguous
 plain (string) representation, so nothing here needs eval()/exec() or similar.
 
@@ -22,14 +23,33 @@ appears as a labeled field.
 
 import json
 import os
+import shutil
 
 from kvittomall import config
 from kvittomall.atomic import atomic_write, no_validation
 from kvittomall.config import Field, Section
-from kvittomall.paths import PDF_LAYOUT_PATH
+from kvittomall.paths import PDF_LAYOUT_PATH, ROOT
 
 FORMATTERS = {"plain": str, "currency": config.currency, "mil": config.mil}
 _FORMATTER_KEYS = {value: key for key, value in FORMATTERS.items()}
+
+# Older versions stored this directly at the repo root - PDF_LAYOUT_PATH moved into
+# paths.CONFIG_DIR (see that module for why) once a container-runtime bind mount on the
+# bare file itself turned out to break atomic_write()'s rename-into-place outright. A
+# module attribute (not computed inline in _migrate_legacy_file() below) so tests can
+# monkeypatch it the same way PDF_LAYOUT_PATH itself already is - see tests/conftest.py.
+_LEGACY_PDF_LAYOUT_PATH = os.path.join(ROOT, "pdf_layout.json")
+
+
+def _migrate_legacy_file() -> None:
+    """One-time, silent migration for anyone who already has a layout saved at the old
+    location: moves it into place the first time it's needed, never overwriting a file
+    that's already at the new path. A no-op once migrated (or if nothing was ever saved
+    at the old location to begin with).
+    """
+    if not os.path.exists(PDF_LAYOUT_PATH) and os.path.exists(_LEGACY_PDF_LAYOUT_PATH):
+        os.makedirs(os.path.dirname(PDF_LAYOUT_PATH), exist_ok=True)
+        shutil.move(_LEGACY_PDF_LAYOUT_PATH, PDF_LAYOUT_PATH)
 
 
 def structural_columns() -> set[str]:
@@ -73,6 +93,7 @@ def load_sections_data() -> list[dict]:
     and when the file's been hand-edited into something unreadable - a bad edit should
     degrade to "the default layout," never crash `generate`.
     """
+    _migrate_legacy_file()
     if not os.path.exists(PDF_LAYOUT_PATH):
         return default_sections_data()
     try:
@@ -87,6 +108,7 @@ def save_sections_data(sections_data: list[dict]) -> None:
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump({"sections": sections_data}, f, ensure_ascii=False, indent=2)
 
+    os.makedirs(os.path.dirname(PDF_LAYOUT_PATH), exist_ok=True)
     atomic_write(PDF_LAYOUT_PATH, writer, no_validation)
 
 
@@ -109,6 +131,7 @@ def migrate_columns(old_to_new: dict[str, str]) -> bool:
     default_sections_data() call already reflects the new mapping) or if nothing in it
     happens to match. Returns whether anything actually changed.
     """
+    _migrate_legacy_file()
     if not os.path.exists(PDF_LAYOUT_PATH):
         return False
     sections = load_sections_data()

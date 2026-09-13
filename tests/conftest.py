@@ -8,15 +8,25 @@ into the real project's logs/ on every run. This only works because pytest alway
 loads conftest.py before collecting/importing test modules.
 
 The same reasoning applies to paths.PDF_LAYOUT_PATH and config._COLUMN_MAPPING_PATH -
-both point at real files in the repo root by default (pdf_layout.json,
+both point at real files under the repo's config/ directory by default (pdf_layout.json,
 column_mapping.json), read live by every call to pdf_layout.get_pdf_sections()/
 config.TIMESTAMP_COLUMN-style attributes, not just by the tests that exercise those
 files directly. A real file left there (e.g. from actually running `kvittomall webui`
-and using /pdf-layout or /column-mapping) would otherwise silently change what most of
-the suite resolves a column name or the cover-page layout to - not a hypothetical, this
-is exactly what happened once those pages existed to create such a file. Tests that
-specifically want to exercise the override-file behavior already monkeypatch their own
-tmp_path on top of this default.
+and using /config) would otherwise silently change what most of the suite resolves a
+column name or the cover-page layout to - not a hypothetical, this is exactly what
+happened once those pages existed to create such a file. Tests that specifically want
+to exercise the override-file behavior already monkeypatch their own tmp_path on top of
+this default.
+
+pdf_layout._LEGACY_PDF_LAYOUT_PATH and config._LEGACY_COLUMN_MAPPING_PATH get the same
+treatment for the same reason, one level removed: both modules silently migrate a file
+found at the pre-CONFIG_DIR repo-root location into the new one (see each module's
+_migrate_legacy_*() docstring), and that legacy path is computed from paths.ROOT/
+config._ROOT - real, unmocked repo-root constants neither test nor fixture ever
+overrides. Left unpatched, any test that merely reads a layout/column setting would
+silently *move* a real repo-root pdf_layout.json/column_mapping.json into a throwaway
+temp directory the first time it ran - a real file's actual content is not something a
+test should ever delete let alone relocate, however remote the chance of one existing.
 """
 
 import os
@@ -37,6 +47,15 @@ import pytest  # noqa: E402
 # import time. Importing it any later (e.g. only implicitly, from within a test module)
 # would bind that copy to the real repo path instead of this test one.
 from kvittomall import db, pdf_layout  # noqa: E402, F401
+
+# See the module docstring above - these two point at the real repo root by default
+# (computed from paths.ROOT/config._ROOT, neither of which any test ever overrides), so
+# they need their own dedicated, guaranteed-nonexistent path, independent of whatever
+# PDF_LAYOUT_PATH/_COLUMN_MAPPING_PATH happen to be patched to above or by an individual
+# test - a real _LEGACY_* path pointing anywhere real would risk a test silently moving
+# an actual file the first time it read a layout/column setting.
+pdf_layout._LEGACY_PDF_LAYOUT_PATH = os.path.join(tempfile.mkdtemp(prefix="kvittomall-test-legacy-pdflayout-"), "pdf_layout.json")
+config._LEGACY_COLUMN_MAPPING_PATH = os.path.join(tempfile.mkdtemp(prefix="kvittomall-test-legacy-colmap-"), "column_mapping.json")
 
 
 @pytest.fixture
