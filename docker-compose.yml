@@ -2,9 +2,7 @@
 #   1. cp .env.example .env, then fill in SHEET_ID/SHEET_GID (and anything else you need).
 #   2. Drop your Google service-account JSON key into ./secrets/ and point
 #      GOOGLE_SERVICE_ACCOUNT_FILE in .env at /app/secrets/<its filename>.
-#   3. touch pdf_layout.json column_mapping.json - so Docker bind-mounts them as files,
-#      not directories, the first time (see README.md's Docker section for why).
-#   4. docker compose up -d --build
+#   3. docker compose up -d --build
 # The web UI is then at http://localhost:5000 (or whatever WEBUI_PORT you set).
 #
 # For a one-off CLI command instead of the web UI:
@@ -28,9 +26,15 @@ services:
       # back into it. GOOGLE_SERVICE_ACCOUNT_FILE in .env should point at
       # /app/secrets/<filename>, matching whatever you dropped in ./secrets/.
       - ./secrets:/app/secrets:ro
-      # Web-UI-edited preferences (PDF cover-page layout, sheet column mapping) -
-      # optional, but without these two a container rebuild (not just a restart) loses
-      # any customization made via /config and falls back to the compiled-in defaults.
-      - ./pdf_layout.json:/app/pdf_layout.json
-      - ./column_mapping.json:/app/column_mapping.json
+      # Web-UI-edited preferences (PDF cover-page layout, sheet column mapping) - a
+      # *directory* mount, deliberately, not one bind mount per file: bind-mounting an
+      # individual file directly would make every save through the web UI fail outright
+      # ("Device or resource busy" - the app writes these atomically via a
+      # temp-file-then-rename, and the kernel refuses to rename onto an active
+      # bind-mount point). Mounting the containing directory instead sidesteps that
+      # entirely, and needs no setup step: an empty/missing host directory is perfectly
+      # normal here, since paths.py already treats a missing file inside it as "nothing
+      # customized yet." Without this, a container rebuild (not just a restart) loses
+      # any /config customization and falls back to the compiled-in defaults.
+      - ./config:/app/config
     restart: unless-stopped

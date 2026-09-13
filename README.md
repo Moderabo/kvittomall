@@ -56,14 +56,13 @@ cd kvittomall
 cp .env.example .env               # fyll i SHEET_ID/SHEET_GID som vanligt, se Konfiguration nedan
 mkdir -p secrets                   # lägg din service account-nyckel här, sätt sedan
                                     # GOOGLE_SERVICE_ACCOUNT_FILE=/app/secrets/<filnamn>.json i .env
-touch pdf_layout.json column_mapping.json  # se nedan för varför
 
 docker compose up -d --build
 ```
 
 Webbgränssnittet finns sedan på `http://localhost:5000` (eller den port du satt `WEBUI_PORT` till i `.env` - `docker-compose.yml` läser samma fil både för att skicka in miljövariabler i containern och för att avgöra vilken värdport som mappas). Ett enskilt kommando istället för webbgränssnittet körs som `docker compose run --rm kvittomall fetch` (byt `fetch` mot vilket kommando som helst, t.ex. `status` eller `run`).
 
-`docker-compose.yml` binder `data/`, `final/`, `logs/`, `secrets/` (skrivskyddad) samt de två filerna `pdf_layout.json`/`column_mapping.json` till motsvarande sökvägar i containern, så inget av det här försvinner mellan omstarter - se `paths.py` för varför just dessa. De två sistnämnda måste `touch`:as innan första `docker compose up`: Docker skapar annars en **mapp** istället för en tom fil om sökvägen inte redan finns när en enskild fil bindmountas, vilket skulle krascha appen (den förväntar sig en fil eller att inget finns alls). Utan dem fungerar allt precis som vanligt - webbgränssnittets `/config`-sida sparar då bara ändringar så länge containern lever, inte mellan ombyggnader.
+`docker-compose.yml` binder `data/`, `final/`, `logs/`, `secrets/` (skrivskyddad) samt hela mappen `config/` (där `/config`-sidans sparade PDF-layout/kolumnmappning hamnar, se `paths.py`) till motsvarande sökvägar i containern, så inget av det här försvinner mellan omstarter. `config/` binds som en hel mapp och inte som enskilda filer, av en konkret anledning: att bindmounta en enskild fil direkt hade fått varje sparning från webbgränssnittet att krascha (appen skriver dessa filer atomiskt via en temp-fil som sedan byter namn till den riktiga, och kärnan vägrar byta namn rakt över en aktiv bindmount-punkt) - verifierat, inte antaget. Med hela mappen bunden fungerar det direkt utan några förberedande steg.
 
 Containern kör som root - en medveten avvägning för enkelhetens skull (samma sorts avvägning som webbgränssnittets avsaknad av inloggning, se Webbgränssnitt nedan), men det betyder att filer som skapas under `data/`/`final/`/`logs/` på värdmaskinen ägs av root, inte din vanliga användare - `sudo` kan behövas för att titta i eller ta bort dem direkt från värden, om du någon gång behöver det.
 

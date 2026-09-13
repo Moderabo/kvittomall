@@ -11,13 +11,16 @@ __pycache__/
 .coverage
 
 # Runtime state the pipeline owns and rebuilds itself - see paths.py/paths.ensure_dirs().
+# config/ specifically holds web-UI-edited preferences (PDF layout, column mapping),
+# not pipeline output, but it's the same idea: a user's local state, not build input.
 data/
 final/
 logs/
+config/
 
 # Secrets and machine-specific config - supplied at `docker run`/compose time instead,
-# see docker-compose.yml. *.json also covers pdf_layout.json/column_mapping.json (a
-# user preference, not build-time input) for the same reason .gitignore excludes them.
+# see docker-compose.yml. *.json is also what's actually inside config/ above (a user
+# preference, not build-time input) for the same reason .gitignore excludes them.
 .env
 *.json
 

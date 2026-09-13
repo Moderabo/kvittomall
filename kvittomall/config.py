@@ -4,6 +4,7 @@ so the pipeline code itself never has to special-case a column name or field.
 
 import json
 import os
+import shutil
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -23,9 +24,30 @@ load_dotenv()
 # config.py's own top-level execution below - would hit a partially-initialized module.
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# A user preference (like pdf_layout.json), not pipeline-generated state - lives at the
-# repo root, outside paths.DATA_DIR/FINAL_DIR, so paths.clean_all() never touches it.
-_COLUMN_MAPPING_PATH = os.path.join(_ROOT, "column_mapping.json")
+# A user preference (like pdf_layout.json, which lives next to this in the same
+# directory), not pipeline-generated state - outside paths.DATA_DIR/FINAL_DIR, so
+# paths.clean_all() never touches it. In its own "config" directory rather than
+# directly in _ROOT because atomic_write()'s rename-into-place needs its target file to
+# sit inside an ordinary directory - a container runtime bind-mounting the file itself
+# (to persist it, e.g. under Docker) makes that rename fail outright (verified: raises
+# "Device or resource busy"); bind-mounting the containing directory instead works.
+_COLUMN_MAPPING_PATH = os.path.join(_ROOT, "config", "column_mapping.json")
+
+# Older versions stored this directly at _ROOT - see the comment above for why it moved.
+# A module attribute (not computed inline in _migrate_legacy_override_file() below) so
+# tests can monkeypatch it the same way _COLUMN_MAPPING_PATH itself already is.
+_LEGACY_COLUMN_MAPPING_PATH = os.path.join(_ROOT, "column_mapping.json")
+
+
+def _migrate_legacy_override_file() -> None:
+    """One-time, silent migration for anyone who already has overrides saved at the old
+    location: moves them into place the first time they're needed, never overwriting a
+    file that's already at the new path. A no-op once migrated (or if nothing was ever
+    saved at the old location to begin with).
+    """
+    if not os.path.exists(_COLUMN_MAPPING_PATH) and os.path.exists(_LEGACY_COLUMN_MAPPING_PATH):
+        os.makedirs(os.path.dirname(_COLUMN_MAPPING_PATH), exist_ok=True)
+        shutil.move(_LEGACY_COLUMN_MAPPING_PATH, _COLUMN_MAPPING_PATH)
 
 
 def _env(env_var: str, default: str) -> str:
@@ -42,6 +64,7 @@ def _column_overrides() -> dict:
     unreadable - a bad edit should degrade to ".env/the compiled-in default," never
     crash every stage that reads a column constant.
     """
+    _migrate_legacy_override_file()
     if not os.path.exists(_COLUMN_MAPPING_PATH):
         return {}
     try:
@@ -56,6 +79,7 @@ def save_column_overrides(overrides: dict) -> None:
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(overrides, f, ensure_ascii=False, indent=2)
 
+    os.makedirs(os.path.dirname(_COLUMN_MAPPING_PATH), exist_ok=True)
     atomic_write(_COLUMN_MAPPING_PATH, writer, no_validation)
 
 
