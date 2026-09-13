@@ -105,6 +105,29 @@
     </p>
     <p class="hint">Changes take effect immediately, on the very next action - no restart of `kvittomall webui` or any CLI command is needed, the same as the PDF layout above.</p>
 
+    <h3>Cover page display fields</h3>
+    <table>
+      <colgroup>
+        <col style="width: 16%"><col style="width: 30%"><col style="width: 30%"><col style="width: 24%">
+      </colgroup>
+      <thead><tr><th>Field</th><th>Currently</th><th>Map to column</th><th>Sample value</th></tr></thead>
+      <tbody>
+        {% for s in settings if not s.is_structural %}
+        <tr data-env-var="{{ s.env_var }}">
+          <td>{{ s.label }}</td>
+          <td>{{ s.current }}{% if not s.overridden %} <span class="default-tag">(default)</span>{% endif %}{% if s.not_found %} <span class="warn">⚠ not found in last fetch</span>{% endif %}</td>
+          <td><select class="column-select"></select></td>
+          <td class="preview"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="top-actions">
+      <button id="save-button-mapping-top">Save</button>
+      <span class="status" id="save-status-mapping-top"></span>
+    </div>
+
     <h3>Row identity, attachments, category</h3>
     <div class="warning-banner">
       ⚠ These determine which sheet row a database entry corresponds to, which links get
@@ -131,27 +154,9 @@
       </tbody>
     </table>
 
-    <h3>Cover page display fields</h3>
-    <table>
-      <colgroup>
-        <col style="width: 16%"><col style="width: 30%"><col style="width: 30%"><col style="width: 24%">
-      </colgroup>
-      <thead><tr><th>Field</th><th>Currently</th><th>Map to column</th><th>Sample value</th></tr></thead>
-      <tbody>
-        {% for s in settings if not s.is_structural %}
-        <tr data-env-var="{{ s.env_var }}">
-          <td>{{ s.label }}</td>
-          <td>{{ s.current }}{% if not s.overridden %} <span class="default-tag">(default)</span>{% endif %}{% if s.not_found %} <span class="warn">⚠ not found in last fetch</span>{% endif %}</td>
-          <td><select class="column-select"></select></td>
-          <td class="preview"></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-
     <div class="top-actions">
-      <button id="save-button-mapping">Save</button>
-      <span class="status" id="save-status-mapping"></span>
+      <button id="save-button-mapping-bottom">Save</button>
+      <span class="status" id="save-status-mapping-bottom"></span>
     </div>
   </section>
 
@@ -449,13 +454,12 @@
 
       SETTINGS.forEach(buildRow);
 
-      document.getElementById("save-button-mapping").addEventListener("click", async () => {
+      async function saveMapping(statusEl) {
         const payload = {};
         SETTINGS.forEach(s => {
           const select = document.querySelector(`tr[data-env-var="${s.env_var}"] .column-select`);
           payload[s.env_var] = select.value;
         });
-        const statusEl = document.getElementById("save-status-mapping");
         statusEl.textContent = "Saving...";
         statusEl.className = "status";
         try {
@@ -476,6 +480,12 @@
           statusEl.textContent = "Failed: could not reach the server.";
           statusEl.className = "status fail";
         }
+      }
+
+      ["top", "bottom"].forEach(pos => {
+        document.getElementById(`save-button-mapping-${pos}`).addEventListener("click", () => {
+          saveMapping(document.getElementById(`save-status-mapping-${pos}`));
+        });
       });
     })();
   </script>
